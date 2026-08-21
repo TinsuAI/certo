@@ -1,0 +1,910 @@
+<!doctype html>
+<html lang="vi" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>Cẩm nang sử dụng CO + Data Hub — Tinsu AI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg:#eef1f7; --panel:#ffffff; --ink:#181b24; --muted:#5c6274; --faint:#8b90a2;
+    --line:#e2e6f0; --line-2:#d3d8e6;
+    --brand:#1d3557; --brand-soft:#e4eaf4;
+    --start:#2563eb; --start-soft:#e6effe;
+    --data:#7c3aed; --data-soft:#f0e9fe;
+    --run:#0891b2; --run-soft:#dcf1f8;
+    --read:#0d9488; --read-soft:#d9f5f0;
+    --act:#b45309; --act-soft:#f8ecdd;
+    --ai:#c026d3; --ai-soft:#fbe8fd;
+    --adm:#475569; --adm-soft:#e8edf3;
+    --warn:#c2410c; --warn-soft:#fdece1;
+    --ok:#0f9d6e; --ok-soft:#e3f6ee;
+    --mark:#e11d48;
+    --shadow:0 1px 2px rgba(20,22,45,.04),0 10px 30px rgba(20,22,45,.06);
+    --radius:14px;
+    --sans:"Inter","Segoe UI",Roboto,-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+    --mono:"JetBrains Mono","SF Mono",ui-monospace,Menlo,Consolas,monospace;
+    --sbw:290px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0f1118; --panel:#181b25; --ink:#e9ebf3; --muted:#a2a8bd; --faint:#767c92;
+      --line:#262a38; --line-2:#333849;
+      --brand:#7ea6dd; --brand-soft:#16233a;
+      --start:#5b9bff; --start-soft:#152447; --data:#a98bff; --data-soft:#241a47;
+      --run:#3fb6d6; --run-soft:#102b34; --read:#3fcfbc; --read-soft:#0f2f2b;
+      --act:#e0a45c; --act-soft:#33240f; --ai:#e879f9; --ai-soft:#33143a;
+      --adm:#9aa8bd; --adm-soft:#1d2431;
+      --warn:#f0925e; --warn-soft:#361d10; --ok:#3ad39a; --ok-soft:#102b23;
+      --shadow:0 1px 2px rgba(0,0,0,.35),0 12px 34px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#eef1f7; --panel:#fff; --ink:#181b24; --muted:#5c6274; --faint:#8b90a2;
+    --line:#e2e6f0; --line-2:#d3d8e6; --brand:#1d3557; --brand-soft:#e4eaf4;
+    --start:#2563eb; --start-soft:#e6effe; --data:#7c3aed; --data-soft:#f0e9fe;
+    --run:#0891b2; --run-soft:#dcf1f8; --read:#0d9488; --read-soft:#d9f5f0;
+    --act:#b45309; --act-soft:#f8ecdd; --ai:#c026d3; --ai-soft:#fbe8fd;
+    --adm:#475569; --adm-soft:#e8edf3;
+    --warn:#c2410c; --warn-soft:#fdece1; --ok:#0f9d6e; --ok-soft:#e3f6ee;
+    --shadow:0 1px 2px rgba(20,22,45,.04),0 10px 30px rgba(20,22,45,.06);
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1118; --panel:#181b25; --ink:#e9ebf3; --muted:#a2a8bd; --faint:#767c92;
+    --line:#262a38; --line-2:#333849; --brand:#7ea6dd; --brand-soft:#16233a;
+    --start:#5b9bff; --start-soft:#152447; --data:#a98bff; --data-soft:#241a47;
+    --run:#3fb6d6; --run-soft:#102b34; --read:#3fcfbc; --read-soft:#0f2f2b;
+    --act:#e0a45c; --act-soft:#33240f; --ai:#e879f9; --ai-soft:#33143a;
+    --adm:#9aa8bd; --adm-soft:#1d2431;
+    --warn:#f0925e; --warn-soft:#361d10; --ok:#3ad39a; --ok-soft:#102b23;
+    --shadow:0 1px 2px rgba(0,0,0,.35),0 12px 34px rgba(0,0,0,.4);
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       font-size:15px;line-height:1.62;-webkit-font-smoothing:antialiased}
+
+  /* ---------- Sidebar ---------- */
+  .sidebar{position:fixed;top:0;left:0;width:var(--sbw);height:100vh;background:var(--panel);
+           border-right:1px solid var(--line);display:flex;flex-direction:column;z-index:40}
+  .brand{display:flex;gap:11px;align-items:center;padding:18px 16px;border-bottom:1px solid var(--line)}
+  .brand .logo{width:38px;height:38px;border-radius:11px;background:var(--brand);
+               display:grid;place-items:center;flex:0 0 auto;color:#fff;font-weight:800;font-size:15px}
+  .brand h1{margin:0;font-size:15px;font-weight:750;letter-spacing:-.01em}
+  .brand span{display:block;font-size:11.5px;color:var(--faint)}
+  .searchwrap{padding:12px 12px 4px}
+  .searchwrap input{width:100%;padding:9px 12px;border:1px solid var(--line-2);border-radius:10px;
+                    background:var(--bg);color:var(--ink);font:inherit;font-size:13px}
+  .searchwrap input:focus{outline:2px solid var(--brand-soft);border-color:var(--brand)}
+  nav.toc{flex:1;overflow-y:auto;padding:10px 10px 24px}
+  nav.toc .sec{margin-top:12px}
+  nav.toc .sec-h{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:11px;font-weight:700;
+                 text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
+  nav.toc .sec-h .pin{width:8px;height:8px;border-radius:3px}
+  nav.toc a{display:flex;gap:8px;align-items:baseline;padding:6px 12px;font-size:13px;
+            color:var(--muted);text-decoration:none;border-radius:8px}
+  nav.toc a .n{flex:0 0 34px;color:var(--faint);font-family:var(--mono);font-size:10.5px}
+  nav.toc a:hover{background:var(--bg);color:var(--ink)}
+  nav.toc a.active{background:var(--brand-soft);color:var(--ink);font-weight:600}
+  .sb-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;
+           padding:10px 16px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+
+  /* ---------- Main ---------- */
+  main{margin-left:var(--sbw)}
+  .topbar{display:none;position:sticky;top:0;z-index:30;align-items:center;gap:10px;
+          padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .topbar button{background:none;border:1px solid var(--line-2);border-radius:9px;padding:5px 7px;
+                 color:var(--ink);cursor:pointer}
+  .scrim{display:none;position:fixed;inset:0;background:rgba(10,12,20,.45);z-index:35}
+
+  .hero{padding:40px 6vw 26px;border-bottom:1px solid var(--line);
+        background:radial-gradient(1200px 300px at 12% -40%,var(--brand-soft),transparent 70%)}
+  .hero-logo{display:flex;align-items:center;gap:11px;margin-bottom:14px}
+  .hero-logo .mk{width:40px;height:40px;border-radius:12px;background:var(--brand);color:#fff;
+                 display:grid;place-items:center;font-weight:800;font-size:15px}
+  .hero-logo b{font-size:15px;font-weight:750}
+  .hero .eyebrow{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--brand)}
+  .hero h2{margin:6px 0 8px;font-size:31px;line-height:1.15;letter-spacing:-.02em}
+  .hero p{margin:0;max-width:72ch;color:var(--muted);font-size:15px}
+  .hero .apps{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+  .appchip{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);
+           border-radius:12px;padding:9px 13px;box-shadow:var(--shadow);font-size:13px}
+  .appchip .ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
+               color:#fff;font-size:15px;flex:0 0 auto}
+  .appchip b{display:block;font-size:13px;font-weight:700}
+  .appchip small{color:var(--faint);font-size:11.5px}
+
+  .wrap{padding:8px 6vw 70px;max-width:1460px}
+  section.block{margin-top:40px;scroll-margin-top:14px}
+  .block-h{display:flex;align-items:center;gap:13px;margin:10px 0 4px}
+  .block-h .badge{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;
+                  color:#fff;font-weight:800;flex:0 0 auto}
+  .block-h h2{margin:0;font-size:22px;letter-spacing:-.01em}
+  .block-lead{margin:2px 0 0;color:var(--muted);font-size:14px;max-width:78ch}
+
+  article.guide{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+                box-shadow:var(--shadow);margin-top:16px;overflow:hidden;scroll-margin-top:14px}
+  .guide-head{display:flex;align-items:center;gap:12px;padding:15px 20px;border-bottom:1px solid var(--line)}
+  .guide-head .gid{font-family:var(--mono);font-size:12px;font-weight:700;padding:3px 9px;border-radius:7px}
+  .guide-head h3{margin:0;font-size:16.5px;font-weight:650}
+  .guide-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:22px;padding:20px}
+  .guide-body.wide{grid-template-columns:minmax(0,1fr)}
+
+  .steps ol{margin:0;padding:0;list-style:none;counter-reset:s}
+  .steps li{position:relative;padding:0 0 12px 34px;counter-increment:s}
+  .steps li:last-child{padding-bottom:0}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:23px;height:23px;
+    border-radius:50%;background:var(--mark);color:#fff;font-size:13px;font-weight:700;
+    display:grid;place-items:center;box-shadow:0 1px 3px rgba(225,29,72,.4)}
+  .steps li.plain{padding-left:16px}
+  .steps li.plain::before{content:"";width:6px;height:6px;top:10px;left:3px;background:var(--faint);box-shadow:none}
+  .steps strong{font-weight:650}
+  .k{font-family:var(--mono);font-size:12.5px;background:var(--bg);border:1px solid var(--line-2);
+     border-radius:5px;padding:1px 6px}
+  .plain-list{margin:0;padding:0;list-style:none}
+  .plain-list li{position:relative;padding:0 0 10px 16px}
+  .plain-list li::before{content:"";position:absolute;left:3px;top:9px;width:6px;height:6px;
+                         border-radius:50%;background:var(--faint)}
+
+  figure{margin:0;align-self:start}
+  figure + figure{margin-top:16px}
+  figure img{width:100%;display:block;border:1px solid var(--line-2);border-radius:10px;
+             cursor:zoom-in;background:var(--bg)}
+  .fig-tag{display:inline-block;font-size:11px;color:var(--muted);background:var(--bg);
+           border:1px solid var(--line);border-radius:6px;padding:2px 8px;margin-bottom:8px}
+  figcaption{margin-top:8px;font-size:12px;color:var(--faint);text-align:center}
+
+  .note{display:flex;gap:11px;margin:0 20px 20px;padding:12px 15px;border-radius:11px;
+        font-size:13.5px;line-height:1.55}
+  .note .ni{flex:0 0 auto;width:19px;height:19px;margin-top:1px;stroke:currentColor;fill:none;
+            stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .note.tip{background:var(--ok-soft);border:1px solid color-mix(in srgb,var(--ok) 30%,transparent)}
+  .note.tip .ni{color:var(--ok)}
+  .note.warn{background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 34%,transparent)}
+  .note.warn .ni{color:var(--warn)}
+  .note.info{background:var(--brand-soft);border:1px solid color-mix(in srgb,var(--brand) 28%,transparent)}
+  .note.info .ni{color:var(--brand)}
+  .note b{font-weight:700}
+
+  .tblwrap{overflow-x:auto;margin:0 20px 20px}
+  table.tb{width:100%;border-collapse:collapse;font-size:13.5px}
+  table.tb th,table.tb td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);
+                          vertical-align:top}
+  table.tb th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700}
+
+  .flow{display:flex;gap:14px;align-items:stretch;flex-wrap:wrap;margin:2px 20px 6px}
+  .flow .fbox{flex:1 1 240px;border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--bg)}
+  .flow .fbox h4{margin:0 0 6px;font-size:14px}
+  .flow .fbox p{margin:0;font-size:13px;color:var(--muted)}
+  .flow .farrow{display:grid;place-items:center;color:var(--faint);font-size:22px;flex:0 0 auto}
+  @media (max-width:700px){ .flow .farrow{transform:rotate(90deg)} }
+
+  /* ---------- Sơ đồ SVG inline (theme-aware) ---------- */
+  .diagram{margin:2px 20px 18px;overflow-x:auto}
+  .diagram svg{display:block;width:100%;height:auto;min-width:560px}
+  .diagram .d-cap{margin-top:8px;font-size:12px;color:var(--faint);text-align:center}
+  .diagram .box{fill:var(--panel);stroke:var(--line-2);stroke-width:1.4}
+  .diagram .box-src{fill:var(--data-soft);stroke:color-mix(in srgb,var(--data) 45%,transparent)}
+  .diagram .box-co{fill:var(--start-soft);stroke:color-mix(in srgb,var(--start) 45%,transparent)}
+  .diagram .box-state{fill:var(--bg);stroke:var(--line-2)}
+  .diagram .box-lock{fill:var(--ok-soft);stroke:color-mix(in srgb,var(--ok) 45%,transparent)}
+  .diagram .box-stale{fill:var(--warn-soft);stroke:color-mix(in srgb,var(--warn) 40%,transparent)}
+  .diagram text{fill:var(--ink);font-family:var(--sans)}
+  .diagram .t-lbl{fill:var(--muted);font-size:11px}
+  .diagram .t-hd{fill:var(--faint);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+  .diagram .edge{stroke:var(--faint);stroke-width:1.6;fill:none}
+  .diagram .edge-rev{stroke:var(--ai);stroke-width:1.6;fill:none;stroke-dasharray:5 4}
+  .diagram .edge-act{stroke:var(--start);stroke-width:1.8;fill:none}
+
+  .noresult{display:none;padding:40px 0;color:var(--muted)}
+  .noresult.show{display:block}
+
+  .lb{display:none;position:fixed;inset:0;z-index:60;background:rgba(8,10,18,.9);cursor:zoom-out;padding:24px}
+  .lb.show{display:flex;align-items:center;justify-content:center}
+  .lb img{max-width:100%;max-height:100%;border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  .lb .cls{position:absolute;top:16px;right:20px;color:#fff;font-size:30px;cursor:pointer;line-height:1}
+
+  .themebtn{position:fixed;right:18px;bottom:18px;z-index:50;width:42px;height:42px;border-radius:50%;
+            border:1px solid var(--line-2);background:var(--panel);color:var(--ink);cursor:pointer;
+            box-shadow:var(--shadow);font-size:17px}
+
+  /* section accents */
+  .sec-start .badge{background:var(--start)} .sec-start .gid{color:var(--start);background:var(--start-soft)}
+  .sec-data  .badge{background:var(--data)}  .sec-data  .gid{color:var(--data);background:var(--data-soft)}
+  .sec-run   .badge{background:var(--run)}   .sec-run   .gid{color:var(--run);background:var(--run-soft)}
+  .sec-read  .badge{background:var(--read)}  .sec-read  .gid{color:var(--read);background:var(--read-soft)}
+  .sec-act   .badge{background:var(--act)}   .sec-act   .gid{color:var(--act);background:var(--act-soft)}
+  .sec-ai    .badge{background:var(--ai)}    .sec-ai    .gid{color:var(--ai);background:var(--ai-soft)}
+  .sec-adm   .badge{background:var(--adm)}   .sec-adm   .gid{color:var(--adm);background:var(--adm-soft)}
+
+  @media (max-width:1080px){ .guide-body{grid-template-columns:minmax(0,1fr)} }
+  @media (max-width:900px){
+    main{margin-left:0}
+    .topbar{display:flex}
+    .sidebar{transform:translateX(-100%);transition:transform .25s ease;box-shadow:var(--shadow)}
+    body.nav-open .sidebar{transform:none}
+    body.nav-open .scrim{display:block}
+    .hero{padding-top:26px} .hero h2{font-size:25px}
+  }
+  @media print{
+    .sidebar,.topbar,.scrim,.themebtn,.searchwrap{display:none!important}
+    main{margin-left:0} body{background:#fff}
+    article.guide{break-inside:avoid;box-shadow:none}
+    .hero{background:none}
+  }
+</style>
+</head>
+<body>
+
+<aside class="sidebar" id="sidebar">
+  <div class="brand">
+    <div class="logo">CO</div>
+    <div><h1>Cẩm nang CO + Data Hub</h1><span>Hướng dẫn nhân viên lập C/O</span></div>
+  </div>
+  <div class="searchwrap">
+    <input id="q" type="search" placeholder="Tìm thao tác… (vd: tồn CO, LVC, thay thế, chốt)" autocomplete="off">
+  </div>
+  <nav class="toc" id="toc"></nav>
+  <div class="sb-foot"><span id="cnt"></span><span style="font-size:11px;color:var(--faint)">Tinsu AI</span></div>
+</aside>
+<div class="scrim" id="scrim"></div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+  <symbol id="i-tip" viewBox="0 0 24 24"><path d="M9.5 18h5M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.8.8 1 1.3 1 2.2V17h6v-1.3c0-.9.2-1.4 1-2.2A6 6 0 0 0 12 3Z"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4L21 20H3Z"/><path d="M12 10v4.5"/><path d="M12 17.5h.01"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><path d="M12 7.5h.01"/></symbol>
+</defs></svg>
+
+<main>
+  <div class="topbar">
+    <button id="burger" aria-label="Mở mục lục">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <b>Cẩm nang CO + Data Hub</b>
+  </div>
+
+  <div class="hero">
+    <div class="hero-logo"><span class="mk">CO</span><b>CO + Data Hub · Chứng nhận xuất xứ hàng hoá (C/O)</b></div>
+    <div class="eyebrow">Tài liệu hướng dẫn sử dụng</div>
+    <h2>Hướng dẫn sử dụng hệ thống CO + Data Hub</h2>
+    <p>
+      Cẩm nang từng bước cho nhân viên lập hồ sơ C/O: chuẩn bị dữ liệu nền trên <b>Data Hub</b>
+      (danh mục, định mức BOM, tờ khai) rồi lập và xuất hồ sơ C/O theo <b>năm bước</b> trên <b>CO</b>.
+      Dữ liệu minh hoạ dùng công ty hư cấu <b>Demo Furniture Co.</b> — không phải dữ liệu khách hàng thật.
+      Mỗi hướng dẫn có ảnh chụp thật với <b style="color:#e11d48">khung đỏ và số thứ tự</b> chỉ đúng chỗ cần bấm —
+      số trên ảnh khớp với số của các bước bên cạnh.
+    </p>
+    <div class="apps">
+      <div class="appchip"><span class="ic" style="background:#7c3aed">🗄️</span><div><b>Data Hub</b><small>Danh mục · BOM · Tờ khai (nguồn dữ liệu)</small></div></div>
+      <div class="appchip"><span class="ic" style="background:#2563eb">📋</span><div><b>CO (Barry CO)</b><small>Lập &amp; xuất hồ sơ C/O 5 bước</small></div></div>
+    </div>
+  </div>
+
+  <div class="wrap" id="content">
+    <div class="noresult" id="noresult">Không tìm thấy hướng dẫn phù hợp. Thử từ khoá khác.</div>
+
+    <!-- ============ 0. TỔNG QUAN ============ -->
+    <section class="block sec-run" id="tongquan">
+      <div class="block-h"><span class="badge">1</span><h2>Tổng quan</h2></div>
+      <p class="block-lead">Hai hệ thống tách biệt nhưng nối với nhau. Đọc mục này trước để hiểu dữ liệu đi từ đâu đến đâu.</p>
+
+      <article class="guide" id="ov1" data-t="tổng quan hai hệ thống data hub co luồng công việc nguồn dữ liệu">
+        <div class="guide-head"><span class="gid">1.1</span><h3>Hai hệ thống, một luồng công việc</h3></div>
+        <div class="guide-body wide">
+          <div class="tblwrap" style="margin:0 0 6px"><table class="tb">
+            <thead><tr><th>Hệ thống</th><th>Vai trò</th><th>Ai dùng</th></tr></thead>
+            <tbody>
+              <tr><td><b>Data Hub</b></td><td>Kho dữ liệu nền dùng chung: danh mục NVL/SP, định mức (BOM), tờ khai hải quan (BCCT). Đây là <b>nguồn sự thật</b> về dữ liệu.</td><td>Người chuẩn bị / chuẩn hoá dữ liệu</td></tr>
+              <tr><td><b>CO</b> (Barry CO)</td><td>Nơi lập và xuất <b>hồ sơ C/O</b> theo 5 bước. CO <b>đọc</b> dữ liệu từ Data Hub, không tự nhập lại.</td><td>Nhân viên làm C/O</td></tr>
+            </tbody>
+          </table></div>
+          <div class="diagram">
+            <svg viewBox="0 0 940 404" role="img" aria-label="Sơ đồ phụ thuộc dữ liệu Data Hub sang CO">
+              <defs>
+                <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--faint)"/></marker>
+                <marker id="ahr" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--ai)"/></marker>
+              </defs>
+              <text class="t-hd" x="155" y="40" text-anchor="middle">🗄️ Data Hub — nguồn</text>
+              <text class="t-hd" x="805" y="40" text-anchor="middle">📋 CO — dùng</text>
+
+              <rect class="box box-src" x="20" y="64" width="270" height="44" rx="8"/>
+              <text x="155" y="91" text-anchor="middle" font-size="12.5">Danh mục NVL/SP</text>
+              <rect class="box box-co" x="670" y="64" width="270" height="44" rx="8"/>
+              <text x="805" y="91" text-anchor="middle" font-size="12.5">Tên &amp; loại NVL trên bảng kê</text>
+              <line class="edge" x1="292" y1="86" x2="666" y2="86" marker-end="url(#ah)"/>
+
+              <rect class="box box-src" x="20" y="123" width="270" height="44" rx="8"/>
+              <text x="155" y="150" text-anchor="middle" font-size="12.5">Bảng Quy Đổi mã</text>
+              <rect class="box box-co" x="670" y="123" width="270" height="44" rx="8"/>
+              <text x="805" y="150" text-anchor="middle" font-size="12.5">Khớp mã lô ↔ mã BOM</text>
+              <line class="edge" x1="292" y1="145" x2="666" y2="145" marker-end="url(#ah)"/>
+
+              <rect class="box box-src" x="20" y="182" width="270" height="44" rx="8"/>
+              <text x="155" y="209" text-anchor="middle" font-size="12.5">BCCT nhập (E11)</text>
+              <rect class="box box-co" x="670" y="182" width="270" height="44" rx="8"/>
+              <text x="805" y="209" text-anchor="middle" font-size="12.5">Tồn CO + đơn giá (Refresh · B2)</text>
+              <line class="edge" x1="292" y1="204" x2="666" y2="204" marker-end="url(#ah)"/>
+
+              <rect class="box box-src" x="20" y="241" width="270" height="44" rx="8"/>
+              <text x="155" y="268" text-anchor="middle" font-size="12.5">BCCT xuất (E42)</text>
+              <rect class="box box-co" x="670" y="241" width="270" height="44" rx="8"/>
+              <text x="805" y="268" text-anchor="middle" font-size="12.5">Sheet sản phẩm (Tạo hồ sơ · B3)</text>
+              <line class="edge" x1="292" y1="263" x2="666" y2="263" marker-end="url(#ah)"/>
+
+              <rect class="box box-src" x="20" y="300" width="270" height="44" rx="8"/>
+              <text x="155" y="327" text-anchor="middle" font-size="12.5">BOM (flat đầy đủ)</text>
+              <rect class="box box-co" x="670" y="300" width="270" height="44" rx="8"/>
+              <text x="805" y="327" text-anchor="middle" font-size="12.5">Định mức + LVC (Load BOM · B6)</text>
+              <line class="edge" x1="292" y1="322" x2="666" y2="322" marker-end="url(#ah)"/>
+
+              <path class="edge-rev" d="M805,346 L805,378 L155,378 L155,348" marker-end="url(#ahr)"/>
+              <text class="t-lbl" x="480" y="373" text-anchor="middle" fill="var(--ai)" font-size="11.5">Đề xuất BOM: CO sửa BOM → Quyết toán → Đề xuất (A10 duyệt)</text>
+            </svg>
+            <div class="d-cap">Mỗi loại dữ liệu Data Hub nuôi một tính năng CO. Thiếu ô trái → hỏng ô phải (xem bảng xử lý sự cố c2).</div>
+          </div>
+        </div>
+        <div class="note info"><svg class="ni"><use href="#i-info"/></svg><div><b>Nguyên tắc quan trọng.</b> Muốn một công ty làm được C/O trên CO thì <b>dữ liệu nền của công ty đó phải có sẵn trong Data Hub trước</b> (danh mục, BOM, tờ khai). <b>Phần A</b> dưới đây hướng dẫn nạp dữ liệu đó; <b>Phần B</b> là nghiệp vụ hằng ngày trên CO.</div></div>
+      </article>
+
+      <article class="guide" id="ov2" data-t="thứ tự nạp dữ liệu phụ thuộc công ty danh mục quy đổi bcct bom tồn phân quyền">
+        <div class="guide-head"><span class="gid">1.2</span><h3>Thứ tự nạp dữ liệu (làm đúng thứ tự)</h3></div>
+        <div class="guide-body wide">
+          <div class="steps"><ol>
+            <li><strong>Tạo công ty + chọn mode mã</strong> (A2) — <b>không đổi được sau khi tạo</b>.</li>
+            <li><strong>Nạp Danh mục NVL/SP</strong> (A3) — nền của mọi mã, phải nạp trước BCCT và BOM.</li>
+            <li><strong>Nạp Bảng Quy Đổi mã</strong> (A6) — <b>chỉ khi</b> mã nội bộ khác mã hải quan (mode ≠ "Mã trùng"). Phải có trước khi flatten BOM để mã lô khớp mã BOM.</li>
+            <li><strong>Nạp BCCT / tờ khai</strong> (A7) — cho <b>tồn CO</b> + <b>đơn giá</b> (tờ khai nhập) và <b>sản phẩm xuất</b> (tờ khai xuất).</li>
+            <li><strong>Nạp BOM + flatten</strong> (A8) — định mức để tính LVC.</li>
+            <li><strong>Sang CO: Refresh tồn CO 1 lần</strong> (B2) — vật chất hoá tồn từ BCCT.</li>
+          </ol></div>
+        </div>
+        <div class="note warn"><svg class="ni"><use href="#i-warn"/></svg><div><b>Nạp sai thứ tự</b> → các dòng chưa khớp mã (unresolved) trông như lỗi. Nạp đúng thứ tự trên. Riêng bước nạp cần tài khoản có <b>quyền sửa công ty</b> (can_edit_client); tài khoản chỉ-xem không làm được Phần A.</div></div>
+      </article>
+    </section>
+
+    <!-- ============ A. DATA HUB ============ -->
+    <section class="block sec-data" id="datahub">
+      <div class="block-h"><span class="badge">A</span><h2>Data Hub — chuẩn bị dữ liệu nền</h2></div>
+      <p class="block-lead">Từ công ty trống đến khi đủ dữ liệu cho CO: tạo công ty → nạp danh mục → (quy đổi) → BCCT → BOM. Mỗi lần nạp đi qua cổng map cột → xem trước → xác nhận.</p>
+
+      <article class="guide" id="a1" data-t="A1 đăng nhập data hub tài khoản email mật khẩu login">
+        <div class="guide-head"><span class="gid">A1</span><h3>Đăng nhập Data Hub</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Nhập <strong>email</strong> tài khoản.</li>
+            <li>Nhập <strong>mật khẩu</strong>.</li>
+            <li>Bấm <strong>Đăng nhập</strong>.</li>
+          </ol>
+          <ul class="plain-list" style="margin-top:12px">
+            <li>Địa chỉ Data Hub: <span class="k">https://ttdatahub.tinsu.ai</span></li>
+          </ul></div>
+          <figure><span class="fig-tag">Đăng nhập Data Hub</span><img src="dh-00-login.png" alt="Màn hình đăng nhập Data Hub"><figcaption>Khung đỏ 1·2·3 khớp bước 1, 2, 3.</figcaption></figure>
+        </div>
+      </article>
+
+      <article class="guide" id="a2" data-t="A2 danh mục khách hàng chọn công ty client thêm mới tìm kiếm huy hiệu">
+        <div class="guide-head"><span class="gid">A2</span><h3>Chọn công ty (hoặc thêm mới)</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li><strong>Bấm vào công ty</strong> để vào không gian làm việc. Gõ ô tìm kiếm để lọc nhanh.</li>
+            <li>Chưa có công ty? Bấm <strong>+ Thêm khách hàng</strong> → sang A2b.</li>
+          </ol></div>
+          <figure><span class="fig-tag">Danh mục khách hàng</span><img src="dh-01-clients.png" alt="Danh sách công ty trong Data Hub"><figcaption>Mỗi công ty có danh mục, Quy đổi, BCCT và BOM độc lập.</figcaption></figure>
+        </div>
+        <div class="note info"><svg class="ni"><use href="#i-info"/></svg><div>Các huy hiệu bên phải mỗi công ty cho biết độ đầy đủ dữ liệu: <b>Danh mục · Quy đổi · BCCT · BOM</b> và trạng thái <b>Đang dùng</b>. Công ty mới sẽ là 0 · 0 · 0 · 0 cho tới khi nạp xong Phần A.</div></div>
+      </article>
+
+      <article class="guide" id="a2b" data-t="A2b tạo công ty mới mã số thuế chế độ khớp mã code resolution mode identity simple mapping batch aggregate không đổi được">
+        <div class="guide-head"><span class="gid">A2b</span><h3>Tạo công ty mới + chọn mode khớp mã</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li><strong>Tên khách hàng</strong> (bắt buộc). Không có ô mã — mã tự sinh từ tên.</li>
+            <li><strong>Mã số thuế</strong> (tuỳ chọn).</li>
+            <li><strong>Chế độ khớp mã</strong> — chọn cách Hub dịch giữa mã nội bộ và mã hải quan. <b>Không đổi được sau khi tạo.</b></li>
+            <li>Bấm <strong>Tạo mới</strong>.</li>
+          </ol></div>
+          <figure><span class="fig-tag">Thêm khách hàng mới</span><img src="dh-new-company.png" alt="Form tạo công ty mới trong Data Hub"><figcaption>Khung đỏ 1·2·3·4 khớp Tên, MST, Chế độ khớp mã, nút Tạo mới.</figcaption></figure>
+        </div>
+        <div class="tblwrap"><table class="tb">
+          <thead><tr><th>Chế độ khớp mã</th><th>Khi nào dùng</th></tr></thead>
+          <tbody>
+            <tr><td><b>Mã trùng</b> (identity)</td><td>Mã nội bộ = mã hải quan. <b>Không cần</b> bảng Quy đổi (bỏ qua A6).</td></tr>
+            <tr><td><b>Ánh xạ đơn giản</b></td><td>Mã khác nhau, tra theo bảng Quy đổi 1-1 / 1-n. Cần nạp Quy đổi (A6).</td></tr>
+            <tr><td><b>Gộp theo lô</b></td><td>Nhiều mã nội bộ gộp về một mã HQ theo lô. Cần Quy đổi (A6).</td></tr>
+          </tbody>
+        </table></div>
+        <div class="note warn"><svg class="ni"><use href="#i-warn"/></svg><div>Chọn <b>sai mode</b> làm mã NVL không resolve → BOM/tồn không khớp mà <b>không báo lỗi rõ</b>. Vì không đổi được sau khi tạo, chọn đúng ngay từ đầu (theo GLOSSARY của khách). <b>Đặt mode</b> cần quyền <span class="k">can_edit_client_technical</span>.</div></div>
+      </article>
+
+      <article class="guide" id="a3" data-t="A3 thanh tab nơi nạp dữ liệu danh mục quy đổi hải quan bcct bom tải lên lịch sử">
+        <div class="guide-head"><span class="gid">A3</span><h3>Thanh tab &amp; nơi nạp dữ liệu</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li><strong>Thanh tab</strong> — chuyển giữa: Tổng quan · Danh mục (Danh mục vật tư + Mã Quy Đổi) · Hải quan (BCCT + Tờ khai) · Quyết toán · BOM · Tải lên · Cấu hình.</li>
+            <li>Việc <strong>nạp</strong> nằm ở <strong>từng tab domain</strong> (Danh mục / Mã Quy Đổi / Hải quan → BCCT / BOM), mỗi tab có nút "Tải lên …" riêng.</li>
+          </ol></div>
+          <figure><span class="fig-tag">Tổng quan &amp; thanh tab</span><img src="dh-02-client-overview.png" alt="Tổng quan công ty và thanh tab"><figcaption>Nạp dữ liệu ở từng tab domain, không phải ở tab "Tải lên".</figcaption></figure>
+        </div>
+        <div class="note warn"><svg class="ni"><use href="#i-warn"/></svg><div>Tab <b>"Tải lên"</b> KHÔNG phải nơi nạp — nó chỉ là <b>lịch sử/kiểm tra</b> các lần nạp (lọc theo module, xem trạng thái parse, xoá file lỗi). Xem A9.</div></div>
+      </article>
+
+      <article class="guide" id="a4" data-t="A4 nạp tải lên danh mục NVL SP catalog excel mã HQ mã NB tên loại ĐVT HS đăng ký hải quan">
+        <div class="guide-head"><span class="gid">A4</span><h3>Nạp Danh mục NVL / SP</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Tab <strong>Danh mục</strong> → bấm <strong>Tải lên Excel</strong>.</li>
+            <li>Chọn file <strong>.xlsx / .xls</strong> (cột: Mã HQ · Mã NB · Tên · Loại NVL/TP/BTP · ĐVT · HS).</li>
+            <li>Tick <strong>"Đây là danh sách đã đăng ký với HQ"</strong> nếu đúng; bỏ trống nếu chỉ là danh mục nội bộ.</li>
+            <li>Bấm <strong>Tải lên &amp; xử lý</strong> → sang cổng map cột (A5).</li>
+          </ol></div>
+          <figure><span class="fig-tag">Danh mục → Tải lên Excel</span><img src="dh-catalog-upload.png" alt="Form tải lên danh mục"><figcaption>Khung đỏ 1·2·3 khớp chọn file, tick đã-đăng-ký-HQ, nút Tải lên.</figcaption></figure>
+        </div>
+        <div class="note info"><svg class="ni"><use href="#i-info"/></svg><div>Danh mục là <b>nền của mọi mã</b> — nạp trước BCCT và BOM. Không có danh mục thì bảng kê CO không có tên/loại vật tư để hiển thị.</div></div>
+      </article>
+
+      <article class="guide" id="a5" data-t="A5 xác nhận map cột mapping preview xem trước lưu confirm cổng nạp header row LLM">
+        <div class="guide-head"><span class="gid">A5</span><h3>Xác nhận cột → xem trước → lưu (cổng chung mọi lần nạp)</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li><strong>Dòng header</strong> — Hub tự đoán; đổi nếu file có banner phía trên.</li>
+            <li><strong>Map từng cột</strong> — đối chiếu cột file ↔ trường Hub; sửa cột còn trống. Có nút <span class="k">Áp dụng đề xuất từ LLM</span>.</li>
+            <li>Bấm <strong>Lưu mapping &amp; chạy parse</strong> → sang trang xem trước.</li>
+            <li>Soát bảng xem trước rồi bấm <strong>Lưu N dòng</strong>. Chưa bấm Lưu thì dữ liệu <b>chưa vào kho</b>.</li>
+          </ol>
+          <ul class="plain-list" style="margin-top:12px">
+            <li><strong>Bỏ qua bước map</strong> khi: đủ trường bắt buộc + ≥1 trường định danh + không cột nào tranh nhau — hoặc file cùng dạng đã map trước đó.</li>
+            <li><span class="k">Áp dụng đề xuất từ LLM</span> chỉ <b>điền cột còn trống</b>, không ghi đè, chưa lưu.</li>
+            <li>Preview có khối <strong>"dòng bị bỏ (skipped)"</strong> — tick Include + sửa tại chỗ để cứu dòng thiếu trường.</li>
+            <li>File <b>pending giữ 24h</b> — "Quay lại sau (giữ pending)" chỉ an toàn trong 24h.</li>
+          </ul></div>
+          <figure><span class="fig-tag">Xác nhận cột trước khi import</span><img src="dh-catalog-mapping.png" alt="Màn hình map cột"><figcaption>Khung đỏ 1·2·3 khớp Dòng header, Map từng cột, Lưu mapping &amp; chạy parse.</figcaption></figure>
+          <figure><span class="fig-tag">Xem trước &amp; Lưu</span><img src="dh-catalog-preview.png" alt="Màn hình xem trước trước khi lưu"><figcaption>Soát dòng sẽ nạp → Lưu N dòng (hoặc Reject để bỏ).</figcaption></figure>
+        </div>
+        <div class="note info"><svg class="ni"><use href="#i-info"/></svg><div>Cổng <b>map → xem trước → xác nhận</b> này <b>chung cho cả 4 luồng nạp</b> (danh mục, quy đổi, BCCT, BOM). Nếu Hub tự đoán chắc chắn thì <b>bỏ qua bước map</b>, vào thẳng xem trước.</div></div>
+      </article>
+
+      <article class="guide" id="a6" data-t="A6 nạp bảng quy đổi mã bqd code mapping mã nội bộ mã hải quan điều kiện">
+        <div class="guide-head"><span class="gid">A6</span><h3>Nạp Bảng Quy Đổi mã (chỉ khi cần)</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Tab <strong>Danh mục → Mã Quy Đổi</strong> → bấm <strong>Tải lên BQD</strong>.</li>
+            <li>Chọn file <strong>.xlsx</strong> hai cột: <strong>Mã nội bộ ↔ Mã hải quan</strong> (lặp dòng để gán 1-n).</li>
+            <li>Qua cổng map → xem trước → <strong>Lưu</strong> (như A5).</li>
+          </ol></div>
+          <figure><span class="fig-tag">Mã Quy Đổi → Tải lên BQD</span><img src="dh-bqd-upload.png" alt="Form tải lên bảng quy đổi mã"><figcaption>Khung đỏ 1·2 khớp chọn file, nút Tải lên.</figcaption></figure>
+        </div>
+        <div class="note warn"><svg class="ni"><use href="#i-warn"/></svg><div><b>Bỏ qua bước này</b> nếu công ty ở mode <b>Mã trùng</b> (identity). Với mode Ánh xạ / Gộp theo lô, thiếu bảng Quy đổi thì mã lô nhập <b>không khớp</b> mã BOM → tồn không bind được, LVC không tính ra.</div></div>
+      </article>
+
+      <article class="guide" id="a7" data-t="A7 nạp BCCT tờ khai hải quan upload nhập xuất cộng dồn diff confirm orphans">
+        <div class="guide-head"><span class="gid">A7</span><h3>Nạp BCCT / tờ khai</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Tab <strong>Hải quan → BCCT</strong> → bấm <strong>Tải lên BCCT</strong>.</li>
+            <li>Chọn <strong>một</strong> file <strong>.xlsx</strong> (mỗi lần một file; nạp nhiều kỳ = tải lần lượt, Hub cộng dồn).</li>
+            <li>Xem trước có <strong>diff</strong> so với kho cũ → tick <span class="k">confirm_diffs</span> / <span class="k">confirm_orphans</span> nếu có thay đổi giá/số lượng → <strong>Lưu</strong>.</li>
+          </ol></div>
+          <figure><span class="fig-tag">Hải quan → Tải lên BCCT</span><img src="dh-bcct-upload.png" alt="Form tải lên BCCT"><figcaption>Khung đỏ 1·2 khớp chọn file, nút Tải lên.</figcaption></figure>
+        </div>
+        <div class="tblwrap"><table class="tb">
+          <thead><tr><th>Ở trang xem trước BCCT</th><th>Nghĩa</th></tr></thead>
+          <tbody>
+            <tr><td><span class="k">confirm_diffs</span></td><td>Một ô tick cho <b>tất cả</b> dòng đổi — xác nhận ghi đè giá/số lượng. Không tick: giữ giá trị cũ, dòng mới vẫn được thêm.</td></tr>
+            <tr><td><span class="k">confirm_orphans</span></td><td><b>Xoá mềm</b> dòng "kho có, file mới không có" (chỉ trong phạm vi các tờ khai xuất hiện trong file).</td></tr>
+            <tr><td>Gate <b>đơn vị tính (UoM)</b></td><td>Còn ĐVT khác họ chưa xác nhận → <b>nút Lưu bị khoá</b> tới khi tick xác nhận.</td></tr>
+          </tbody>
+        </table></div>
+        <div class="note info"><svg class="ni"><use href="#i-info"/></svg><div>Tờ khai <b>nhập (E11)</b> → tồn CO + đơn giá NVL không xuất xứ. Tờ khai <b>xuất (E42)</b> → sản phẩm nào được khai C/O. Thiếu BCCT thì CO refresh tồn ra rỗng và "Tạo hồ sơ" theo số tờ khai xuất không ra sheet.</div></div>
+        <div class="note warn"><svg class="ni"><use href="#i-warn"/></svg><div>Cảnh báo giá/tỷ giá <b>không chặn</b> Lưu; nhưng gate <b>ĐVT khoá nút Lưu</b> — đây là lý do hay gặp khi "sao nút Lưu bị mờ". Cột giá phân biệt "đơn giá tính thuế" (VND) ≠ "đơn giá" (nguyên tệ). Sheet thiếu cả số tờ khai lẫn ngày sẽ <b>bị bỏ qua cả sheet</b>. BCCT auto-map chắc chắn thì bỏ preview, nạp thẳng.</div></div>
+      </article>
+
+      <article class="guide" id="a8" data-t="A8 nạp BOM định mức upload workbook profile tự động phát hiện flatten nổ SP NPL">
+        <div class="guide-head"><span class="gid">A8</span><h3>Nạp BOM (định mức) + flatten</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Tab <strong>BOM</strong> → bấm <strong>Tải lên BOM</strong>.</li>
+            <li>Để <strong>Kiểu phân tích = Tự động phát hiện</strong> (hoặc chọn profile nếu biết).</li>
+            <li>Chọn file <strong>.xlsx</strong> → <strong>Tải lên</strong>.</li>
+            <li>Soát bảng mẫu SP × NPL ở xem trước → <strong>Lưu</strong>. BOM nhiều cấp → thêm bước <strong>xem trước flatten</strong> → <strong>Xác nhận</strong>.</li>
+          </ol></div>
+          <figure><span class="fig-tag">BOM → Tải lên BOM</span><img src="dh-bom-upload.png" alt="Form tải lên BOM"><figcaption>Khung đỏ 1·2·3 khớp chọn kiểu phân tích, chọn file, nút Tải lên.</figcaption></figure>
+        </div>
+        <div class="note info"><svg class="ni"><use href="#i-info"/></svg><div>Dropdown có ~8 <b>profile</b> (auto · manual_flat · sheet_per_product · sap_indented_walk · technical_raw · technical_flatten…). <b>Chỉ <span class="k">manual_flat</span> có bước map cột</b>; các profile khác auto-parse. Auto thất bại → báo "Không có parser phù hợp, chọn parser thủ công". Có form phụ "Đặt parser mặc định cho client".</div></div>
+        <div class="note warn"><svg class="ni"><use href="#i-warn"/></svg><div>Việc <b>nổ (flatten)</b> BOM nhiều cấp làm <b>trong app</b> ở bước xác nhận, không nổ tay trong Excel. Bước <b>flatten-preview có các quyết định phải tick — không tick là chặn Lưu</b> (dual-source, BCCT vs BOM con, quy đổi ĐVT…). Preview báo "cấu trúc nhiều cấp nhưng đang lưu phẳng — sẽ KHÔNG sinh BOM phân rã" thì nên <b>reject</b>. CO chỉ dùng BOM <b>flat đầy đủ</b> (<span class="k">manual_flat</span>).</div></div>
+      </article>
+
+      <article class="guide" id="a9" data-t="A9 kiểm tra dữ liệu đã nạp danh mục bcct bom lịch sử tải lên module trạng thái xoá file lỗi">
+        <div class="guide-head"><span class="gid">A9</span><h3>Kiểm tra dữ liệu đã nạp &amp; lịch sử</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Mở lại các tab <strong>Danh mục</strong>, <strong>Hải quan → BCCT</strong>, <strong>BOM</strong> để soát dữ liệu vừa nạp (tên, số lượng, mã HS, định mức từng dòng).</li>
+            <li>Tab <strong>Tải lên</strong> — xem lịch sử mọi lần nạp: lọc theo module (danh mục / quy đổi / BCCT / BOM), trạng thái parse, <strong>xoá</strong> file lỗi để nạp lại.</li>
+          </ol></div>
+          <figure><span class="fig-tag">Tab Danh mục (đã nạp)</span><img src="dh-03-catalog.png" alt="Danh mục NVL/SP sau khi nạp"><figcaption>Danh mục — tên, ĐVT, HS, declarability.</figcaption></figure>
+          <figure><span class="fig-tag">Tab Tải lên — lịch sử</span><img src="dh-uploads.png" alt="Lịch sử tải lên"><figcaption>Chỉ để kiểm tra / xoá file lỗi — không nạp ở đây.</figcaption></figure>
+        </div>
+        <div class="tblwrap"><table class="tb">
+          <thead><tr><th>Xem lại ở</th><th>Ảnh</th></tr></thead>
+          <tbody>
+            <tr><td><b>BCCT</b> (tờ khai nhập/xuất)</td><td><img src="dh-04-bcct.png" alt="BCCT đã nạp" style="max-width:340px;border-radius:8px;border:1px solid var(--line-2);cursor:zoom-in"></td></tr>
+            <tr><td><b>BOM</b> (bản lưu + chi tiết định mức)</td><td><img src="dh-06-bom-chair.png" alt="Chi tiết BOM CHAIR01" style="max-width:340px;border-radius:8px;border:1px solid var(--line-2);cursor:zoom-in"></td></tr>
+          </tbody>
+        </table></div>
+        <div class="note info"><svg class="ni"><use href="#i-info"/></svg><div>Khối "Phân tích AI vật tư" ở tab Danh mục thống kê độ phủ declarability (<span class="k">customs_relevance</span>). Vật tư chưa phân loại vẫn được <b>giữ lại</b> trên bảng kê CO (không tự loại).</div></div>
+      </article>
+
+      <article class="guide" id="a10" data-t="A10 đề xuất bom proposals duyệt quyết toán nhân viên co sửa">
+        <div class="guide-head"><span class="gid">A10</span><h3>Đề xuất BOM (từ CO gửi lên)</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Khi nhân viên CO sửa/đề xuất BOM mới cho một hồ sơ, đề xuất hiện ở tab <strong>Quyết toán → Đề xuất</strong> để người có quyền duyệt.</li>
+          </ol></div>
+          <figure><span class="fig-tag">Quyết toán → Đề xuất</span><img src="dh-07-proposals.png" alt="Đề xuất BOM trong Data Hub"><figcaption>Đề xuất BOM chờ duyệt.</figcaption></figure>
+        </div>
+      </article>
+    </section>
+
+    <!-- ============ B. CO — 5 BƯỚC ============ -->
+    <section class="block sec-start" id="co">
+      <div class="block-h"><span class="badge">B</span><h2>CO — lập hồ sơ C/O theo 5 bước</h2></div>
+      <p class="block-lead">Từ chọn công ty và chuẩn bị tồn, qua bảng kê tính LVC, đến chốt và xuất hồ sơ C/O.</p>
+
+      <article class="guide" id="b1" data-t="B1 vào CO chọn công ty danh sách đọc từ data hub">
+        <div class="guide-head"><span class="gid">B1</span><h3>Vào CO &amp; chọn công ty</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li><strong>Bấm vào công ty</strong> để mở không gian làm việc.</li>
+          </ol>
+          <ul class="plain-list" style="margin-top:12px">
+            <li>Địa chỉ CO: <span class="k">https://barry-co.tinsu.ai</span></li>
+            <li>Danh sách đọc trực tiếp từ Data Hub — công ty mới thêm bên Data Hub tự xuất hiện ở đây.</li>
+          </ul></div>
+          <figure><span class="fig-tag">Trang Công ty (CO)</span><img src="co-01-clients.png" alt="Danh sách công ty trong CO"><figcaption>CO đọc danh sách công ty trực tiếp từ Data Hub.</figcaption></figure>
+        </div>
+      </article>
+
+      <article class="guide" id="b2" data-t="B2 chuẩn bị tồn CO refresh data hub materialize đơn giá trừ lùi cold start">
+        <div class="guide-head"><span class="gid">B2</span><h3>Chuẩn bị tồn CO (làm 1 lần cho công ty mới)</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Vào tab <strong>Tồn CO</strong>. Đọc <strong>chip đồng bộ</strong>: ✓ Đồng bộ · ⚠ Lệch N dòng BCCT — nên refresh · Chưa có snapshot.</li>
+            <li>Bấm <strong>Refresh từ Data Hub</strong> để vật chất hoá (materialize) tồn từ tờ khai nhập BCCT (~10s với client lớn).</li>
+          </ol>
+          <ul class="plain-list" style="margin-top:12px">
+            <li>Đây là điều kiện để bảng kê có <strong>đơn giá</strong> và <strong>số lượng tồn</strong> để trừ lùi.</li>
+            <li><strong>Lịch sử lô</strong> (mỗi dòng): sự kiện Nhập · Chốt CO (Đang giữ) · Mở chốt (Đã nhả) · ⚠ vượt tồn.</li>
+            <li><b>Tồn CO ≠ tồn kho vật lý</b> — đây là tồn để trừ lùi C/O, dẫn xuất từ tờ khai nhập.</li>
+          </ul></div>
+          <figure><span class="fig-tag">Tab Tồn CO</span><img src="co-13-co-stock.png" alt="Tồn CO — materialize từ Data Hub"><figcaption>Sau refresh, bảng tồn hiển thị từng lô NK (số tờ khai · mã NVL · số lượng · còn lại).</figcaption></figure>
+        </div>
+        <div class="note warn"><svg class="ni"><use href="#i-warn"/></svg><div><b>Công ty mới phải refresh tồn CO 1 lần</b> trước khi Tính bảng kê. Nếu không, NVL sẽ <b>thiếu đơn giá</b> và <b>không chốt được</b>. Tồn được lưu phía CO và chỉ cần refresh lại khi Data Hub có tờ khai mới.</div></div>
+        <div class="diagram">
+          <svg viewBox="0 0 960 188" role="img" aria-label="Sơ đồ vòng đời tồn CO của một lô">
+            <defs>
+              <marker id="ah3" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--faint)"/></marker>
+              <marker id="ah3a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--start)"/></marker>
+              <marker id="ah3r" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--ai)"/></marker>
+            </defs>
+            <rect class="box box-src" x="24" y="44" width="250" height="52" rx="9"/>
+            <text x="149" y="74" text-anchor="middle" font-size="12.5">BCCT nhập (E11) · Data Hub</text>
+            <rect class="box box-state" x="360" y="44" width="240" height="52" rx="9"/>
+            <text x="480" y="74" text-anchor="middle" font-size="12.5">Tồn khả dụng (lô còn lại)</text>
+            <rect class="box box-lock" x="690" y="44" width="246" height="52" rx="9"/>
+            <text x="813" y="74" text-anchor="middle" font-size="12.5">Đang giữ (trừ khi Chốt)</text>
+
+            <line class="edge-act" x1="276" y1="70" x2="356" y2="70" marker-end="url(#ah3a)"/>
+            <text class="t-lbl" x="316" y="36" text-anchor="middle">Refresh (materialize)</text>
+            <line class="edge-act" x1="602" y1="70" x2="686" y2="70" marker-end="url(#ah3a)"/>
+            <text class="t-lbl" x="644" y="36" text-anchor="middle">Chốt sheet (claim)</text>
+
+            <path class="edge-rev" d="M813,98 L813,130 L480,130 L480,98" marker-end="url(#ah3r)"/>
+            <text class="t-lbl" x="646" y="148" text-anchor="middle" fill="var(--ai)">Mở chốt (release — tồn hồi về khả dụng)</text>
+            <text class="t-lbl" x="149" y="122" text-anchor="middle">DH có tờ khai mới → chip ⚠ Lệch → Refresh</text>
+          </svg>
+          <div class="d-cap">Refresh dựng tồn từ BCCT; Chốt giữ (trừ) tồn của lô; Mở chốt nhả tồn về khả dụng.</div>
+        </div>
+      </article>
+
+      <article class="guide" id="b3" data-t="B3 tạo hồ sơ C/O thị trường số tờ khai xuất invoice tiêu đề">
+        <div class="guide-head"><span class="gid">B3</span><h3>Tạo hồ sơ C/O</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Vào tab <strong>Hồ sơ C/O</strong> → bấm <strong>+ Tạo hồ sơ</strong>.</li>
+            <li>Nhập <strong>Số tờ khai xuất</strong> (vd <span class="k">105100100100, 105100100101</span>) — hệ thống lấy đúng các <b>sản phẩm</b> trong những tờ khai này làm sheet bảng kê.</li>
+            <li>Nhập <strong>Thị trường</strong> (vd "Hàn Quốc") — quyết định form C/O được gợi ý.</li>
+            <li>Bấm <strong>Tạo hồ sơ</strong>.</li>
+          </ol></div>
+          <figure><span class="fig-tag">Danh sách hồ sơ</span><img src="co-02-case-list.png" alt="Danh sách hồ sơ C/O"><figcaption>Bấm + Tạo hồ sơ để mở modal.</figcaption></figure>
+          <figure><span class="fig-tag">Modal tạo hồ sơ</span><img src="co-03-create-modal.png" alt="Modal tạo hồ sơ C/O"><figcaption>Khung đỏ 1·2·3 khớp Số tờ khai xuất, Thị trường, nút Tạo hồ sơ.</figcaption></figure>
+        </div>
+        <div class="note info"><svg class="ni"><use href="#i-info"/></svg><div>Nhập <b>số tờ khai xuất</b> hoặc <b>invoice</b> là đủ để hệ thống tự nạp ngữ cảnh BCCT và gợi ý form. Tên hồ sơ là tuỳ chọn (mục Thông tin thêm).</div></div>
+      </article>
+
+      <article class="guide" id="b4" data-t="B4 bước 1 lô hàng stepper 5 bước invoice bill of lading thị trường">
+        <div class="guide-head"><span class="gid">B4</span><h3>Bước 1 — Lô hàng</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li><strong>Thanh 5 bước</strong> ở trên cùng cho biết trạng thái từng bước. Ở đây có thể bổ sung số invoice, số B/L, kiểm tra tờ khai xuất và thị trường.</li>
+          </ol></div>
+          <figure><span class="fig-tag">Bước 1 · Lô hàng</span><img src="co-04-case-overview.png" alt="Bước 1 — Lô hàng"><figcaption>Thanh tiến trình 5 bước theo suốt hồ sơ.</figcaption></figure>
+        </div>
+      </article>
+
+      <article class="guide" id="b5" data-t="B5 bước 2 chứng từ tải lên invoice bill of lading packing list kéo thả">
+        <div class="guide-head"><span class="gid">B5</span><h3>Bước 2 — Chứng từ</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Kéo-thả tải lên bộ chứng từ: Invoice, Bill of Lading, Packing List và chứng từ bổ sung.</li>
+          </ol>
+          <ul class="plain-list" style="margin-top:12px">
+            <li>Có thanh tiến độ "bắt buộc N/3".</li>
+          </ul></div>
+          <figure><span class="fig-tag">Bước 2 · Chứng từ</span><img src="co-05-documents.png" alt="Bước 2 — Chứng từ"><figcaption>Kéo-thả để tải lên bộ chứng từ.</figcaption></figure>
+        </div>
+      </article>
+
+      <article class="guide" id="b6" data-t="B6 bước 3 bảng kê CO LVC RVC load bom tính hàm lượng giá trị khu vực FOB VNM CTC">
+        <div class="guide-head"><span class="gid">B6</span><h3>Bước 3 — Bảng kê C/O (quan trọng nhất)</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Mở một sheet sản phẩm, bấm <strong>Load BOM</strong> để nạp cấu trúc định mức (NVL) từ Data Hub vào bảng kê.</li>
+            <li>Bấm <strong>Tính bảng kê</strong> — hệ thống phân bổ tồn CO, lấy đơn giá NVL không xuất xứ và tính <strong>LVC</strong>.</li>
+            <li>Đọc thanh cấu hình: HS, FOB, VNM (trị giá NVL không xuất xứ), <strong>LVC % / ngưỡng</strong>, kết quả CTC. Đạt ngưỡng thì được bật nút <strong>Chốt</strong>.</li>
+          </ol></div>
+          <figure><span class="fig-tag">Load BOM</span><img src="co-06-origin-sheets.png" alt="Bước 3 — Load BOM"><figcaption>Bước 1: bấm Load BOM để nạp định mức vào sheet.</figcaption></figure>
+          <figure><span class="fig-tag">Tính bảng kê</span><img src="co-07-load-bom.png" alt="Bước 3 — Tính bảng kê"><figcaption>Bước 2: bấm Tính bảng kê.</figcaption></figure>
+          <figure><span class="fig-tag">Kết quả LVC</span><img src="co-08-bang-ke-calculated.png" alt="Bước 3 — bảng kê đã tính LVC"><figcaption>Khung đỏ 1 = thanh cấu hình/LVC, 2 = nút Chốt. Ví dụ CHAIR01 đạt LVC 77% / ngưỡng 30%.</figcaption></figure>
+        </div>
+        <div class="note info"><svg class="ni"><use href="#i-info"/></svg><div>Mỗi sản phẩm trong tờ khai xuất là một "sheet". Bảng liệt kê từng NVL với định mức, lượng dùng, đơn giá, trị giá và nhãn xuất xứ ("Không xuất xứ" = tính vào VNM). Dòng con "Dòng tồn N … tồn trước → còn" cho biết lô nào bị trừ.</div></div>
+        <div class="tblwrap"><table class="tb">
+          <thead><tr><th>Thanh cấu hình — đọc gì</th><th>Ý nghĩa</th></tr></thead>
+          <tbody>
+            <tr><td><b>FOB</b></td><td>Trị giá xuất xưởng sản phẩm — mẫu số của LVC.</td></tr>
+            <tr><td><b>VNM</b></td><td>Tổng trị giá NVL <b>không xuất xứ</b> (nguyên liệu ngoại) — phần trừ khỏi FOB.</td></tr>
+            <tr><td><b>LVC % / ngưỡng</b></td><td>Hàm lượng giá trị khu vực đạt được / ngưỡng tối thiểu của form. Đạt → bật Chốt.</td></tr>
+            <tr><td><b>CTC</b></td><td>Tiêu chí chuyển đổi mã HS (CTH/CTSH) — đạt / không.</td></tr>
+            <tr><td><b>Phương pháp Build-down</b></td><td>LVC = (FOB − VNM)/FOB. Nhập <b>chi phí xuất xưởng</b> (lương, khấu hao, CP SX chung, vận chuyển…) ở panel để tăng phần nội địa; Lợi nhuận (V) = FOB − chi phí nếu để trống.</td></tr>
+          </tbody>
+        </table></div>
+        <div class="tblwrap"><table class="tb">
+          <thead><tr><th>Ba nghĩa "xuất xứ" trên bảng kê</th><th>Là gì</th></tr></thead>
+          <tbody>
+            <tr><td>Cột (9) <b>nước xuất xứ NVL</b></td><td>Sự thật (free-text) — NVL đến từ nước nào.</td></tr>
+            <tr><td>Cột (7)/(8) <b>trị giá có / không có xuất xứ FTA</b></td><td>Phán định (tiền) — vào tử số LVC hay vào VNM. NVL Việt Nam muốn vào cột (7) cần <b>PL X / Cam kết NCC</b> (nộp ở Bước 2).</td></tr>
+            <tr><td><b>Tiêu chí</b></td><td>Thuộc sản phẩm + form (WO/CTC/RVC/LVC…), không thuộc từng NVL.</td></tr>
+          </tbody>
+        </table></div>
+        <div class="note info"><svg class="ni"><use href="#i-info"/></svg><div><b>Thao tác quan trọng ở Bước 3</b> (thanh Review + lưới NVL): "Xử lý tuần tự" (wizard tính→chốt từng sheet) · "Tính tồn tất cả" · "Chốt tất cả" · "▦ Tổng hợp NVL thiếu tồn"; <b>đổi thứ tự sheet = đổi thứ tự trừ tồn</b>; chọn &amp; <b>ghim ★ phiên bản BOM</b>; <b>⚙ cấu hình</b> (tiêu chí · ngưỡng % · tiền tệ · tối ưu ↑/↓ LVC); sửa định mức + "+ Thêm dòng NVL", <b>undo/redo Ctrl+Z / Ctrl+Y sống qua cả lần Lưu</b>, tự lưu khi ngừng thao tác; sửa BOM rồi "Lưu BOM mới" để <b>đề xuất về Data Hub</b> (→ A10).</div></div>
+      </article>
+
+      <article class="guide" id="b7" data-t="B7 NVL thay thế substitute thiếu tồn ứng viên đơn giá thấp heuristic mã HS lịch sử">
+        <div class="guide-head"><span class="gid">B7</span><h3>NVL thay thế (khi thiếu tồn)</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Nếu một NVL thiếu tồn, bấm tìm <strong>NVL thay thế</strong>. Modal gợi ý ứng viên (ưu tiên đơn giá thấp để tăng LVC).</li>
+          </ol>
+          <ul class="plain-list" style="margin-top:12px">
+            <li>Nếu Data Hub chưa có gợi ý precomputed, CO <strong>tự dò heuristic theo mã HS</strong> (không phụ thuộc Data Hub).</li>
+          </ul></div>
+          <figure><span class="fig-tag">Modal NVL thay thế</span><img src="co-10-substitute-modal.png" alt="Modal NVL thay thế"><figcaption>Ứng viên thay thế, ưu tiên đơn giá thấp.</figcaption></figure>
+        </div>
+        <div class="note tip"><svg class="ni"><use href="#i-tip"/></svg><div><b>Ưu tiên lịch sử thay thế.</b> Những mã đã từng dùng để thay NVL này trong các hồ sơ <b>đã chốt</b> trước đó được <b>ghim lên đầu</b> danh sách kèm huy hiệu <span class="k">↺ đã từng thay ·N</span>. Huy hiệu xuất hiện sau lần thay-và-chốt đầu tiên.</div></div>
+      </article>
+
+      <article class="guide" id="b8" data-t="B8 chốt sheet khoá lock trừ tồn claim mở chốt reopen tiến độ 1/2">
+        <div class="guide-head"><span class="gid">B8</span><h3>Chốt sheet</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Khi sheet đạt và đủ đơn giá, bấm <strong>Chốt</strong> để khoá. Sheet đã chốt hiển thị <strong>🔒 Chốt</strong> và trừ tồn CO (ghi claim).</li>
+            <li>Cần sửa lại thì bấm <strong>Mở chốt</strong>.</li>
+          </ol></div>
+          <figure><span class="fig-tag">Sheet đã chốt</span><img src="co-09-bang-ke-locked.png" alt="Sheet đã chốt"><figcaption>Sheet 🔒 Chốt — nút chuyển thành Mở chốt.</figcaption></figure>
+          <figure><span class="fig-tag">Tiến độ chốt</span><img src="co-11-origin-all-locked.png" alt="Bảng tổng bước 3 — tiến độ chốt"><figcaption>Bảng tổng cho thấy tiến độ (vd 1/2 chốt): một sheet 🔒, một sheet đang làm.</figcaption></figure>
+        </div>
+        <div class="note warn"><svg class="ni"><use href="#i-warn"/></svg><div><b>Chốt theo thứ tự.</b> Các sheet được chốt tuần tự (sheet sau đòi sheet trước đã chốt) để trừ tồn nhất quán. <b>Mở chốt nhả tồn</b> đã trừ về sổ (soft release); chốt lại sẽ trừ lại theo tồn hiện tại.</div></div>
+        <div class="diagram">
+          <svg viewBox="0 0 960 236" role="img" aria-label="Sơ đồ vòng đời một sheet bảng kê">
+            <defs>
+              <marker id="ah2" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--faint)"/></marker>
+              <marker id="ah2a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--start)"/></marker>
+              <marker id="ah2r" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--ai)"/></marker>
+            </defs>
+            <rect class="box box-state" x="24" y="36" width="176" height="48" rx="9"/>
+            <text x="112" y="65" text-anchor="middle" font-size="13">Nháp</text>
+            <rect class="box box-state" x="256" y="36" width="176" height="48" rx="9"/>
+            <text x="344" y="65" text-anchor="middle" font-size="13">Đã nạp BOM</text>
+            <rect class="box box-state" x="488" y="36" width="176" height="48" rx="9"/>
+            <text x="576" y="65" text-anchor="middle" font-size="13">Đã tính</text>
+            <rect class="box box-lock" x="720" y="36" width="200" height="48" rx="9"/>
+            <text x="820" y="65" text-anchor="middle" font-size="13">🔒 Đã chốt</text>
+
+            <line class="edge-act" x1="202" y1="60" x2="252" y2="60" marker-end="url(#ah2a)"/>
+            <text class="t-lbl" x="227" y="28" text-anchor="middle">Load BOM</text>
+            <line class="edge-act" x1="434" y1="60" x2="484" y2="60" marker-end="url(#ah2a)"/>
+            <text class="t-lbl" x="459" y="28" text-anchor="middle">Tính (tồn+LVC)</text>
+            <line class="edge-act" x1="666" y1="60" x2="716" y2="60" marker-end="url(#ah2a)"/>
+            <text class="t-lbl" x="691" y="28" text-anchor="middle">Chốt (trừ tồn)</text>
+
+            <path class="edge-rev" d="M820,86 L820,120 L624,120 L624,86" marker-end="url(#ah2r)"/>
+            <text class="t-lbl" x="724" y="136" text-anchor="middle" fill="var(--ai)">Mở chốt (nhả tồn)</text>
+
+            <rect class="box box-stale" x="430" y="170" width="196" height="44" rx="9"/>
+            <text x="528" y="197" text-anchor="middle" font-size="12.5">⟳ Cần tính lại</text>
+            <path class="edge" d="M540,86 L540,168" marker-end="url(#ah2)"/>
+            <text class="t-lbl" x="300" y="130" text-anchor="middle">đổi thứ tự · refresh tồn · sửa</text>
+            <path class="edge-act" d="M576,168 L576,86" marker-end="url(#ah2a)"/>
+            <text class="t-lbl" x="632" y="130" text-anchor="middle">Tính lại</text>
+          </svg>
+          <div class="d-cap">Vòng đời một sheet. Nút Tính/Chốt/Mở chốt bật-tắt theo trạng thái này — xem bảng dưới.</div>
+        </div>
+        <div class="tblwrap"><table class="tb">
+          <thead><tr><th>Nút mờ / thông báo</th><th>Vì sao</th><th>Xử lý</th></tr></thead>
+          <tbody>
+            <tr><td>Chốt mờ — "Cần chốt các bước trước: X…"</td><td>Sheet trước chưa chốt (chốt tuần tự)</td><td>Chốt các sheet trước theo thứ tự</td></tr>
+            <tr><td>Chốt mờ — "còn NVL thiếu tồn / không có lô nhập khớp"</td><td>NVL chưa khớp tồn / tờ khai nhập</td><td>Bổ sung chứng từ (khớp tờ khai nhập hoặc hoá đơn VAT) rồi tính lại — <b>không dùng giá ước tính</b></td></tr>
+            <tr><td>Chốt mờ — "còn NVL thiếu đơn giá"</td><td>NVL không có đơn giá</td><td>Bổ sung đơn giá / khớp tồn rồi Tính lại</td></tr>
+            <tr><td>Chốt mờ — "Chỉ chốt được sau khi đã tính"</td><td>Sheet chưa Tính</td><td>Bấm Tính bảng kê</td></tr>
+            <tr><td>Mở chốt mờ</td><td>Chỉ mở được từ <b>sheet chốt sau cùng</b></td><td>Mở chốt các sheet sau trước</td></tr>
+            <tr><td>Tính mờ — "Đã tính"</td><td>Đã tính, chưa đổi gì</td><td>Sửa bảng kê → tự chuyển "Tính lại"</td></tr>
+          </tbody>
+        </table></div>
+      </article>
+
+      <article class="guide" id="b9" data-t="B9 bước 4 TKX TKN tờ khai xuất nhập kiểm tra tải zip data hub chốt phân bổ tồn">
+        <div class="guide-head"><span class="gid">B9</span><h3>Bước 4 — TKX / TKN (kiểm tra &amp; tải, KHÔNG upload)</h3></div>
+        <div class="guide-body">
+          <div class="steps"><ol>
+            <li>Đọc callout đếm số <strong>TKX/TKN còn thiếu file</strong>. Bước này <b>không tải file lên</b> — file tờ khai nằm bên Data Hub.</li>
+            <li>Thiếu file → bổ sung ở <strong>Data Hub → Tờ khai</strong> rồi quay lại.</li>
+            <li>Bảng <strong>TKN</strong> chỉ xuất hiện <b>sau khi chốt sheet</b> — lấy từ dòng phân bổ tồn (allocation) của các sheet đã chốt.</li>
+            <li>Khi trạng thái "Đã có" đủ, bấm <strong>Tải TKX…zip</strong> / <strong>Tải TKN…zip</strong> (link tải thẳng từ Data Hub).</li>
+          </ol></div>
+          <figure><span class="fig-tag">Bước 4 · TKX/TKN</span><img src="co-12-exports.png" alt="Bước 4 — kiểm tra và tải TKX/TKN"><figcaption>Kiểm tra trạng thái file rồi tải zip — không có upload ở bước này.</figcaption></figure>
+        </div>
+        <div class="note warn"><svg class="ni"><use href="#i-warn"/></svg><div>"Chưa có TKN nào" nghĩa là <b>chưa chốt sheet</b> — TKN chỉ sinh ra từ tồn đã trừ khi Chốt (B8). Nút tải <b>mờ</b> khi Data Hub chưa có file tờ khai tương ứng → bổ sung bên Data Hub.</div></div>
+      </article>
+
+      <article class="guide" id="b10" data-t="B10 bước 5 review đóng hồ sơ xuất zip dossier bảng kê hải quan job nền mở lại khoá checklist">
+        <div class="guide-head"><span class="gid">B10</span><h3>Bước 5 — Review · Đóng hồ sơ &amp; Xuất</h3></div>
+        <div class="guide-body wide">
+          <div class="steps"><ol>
+            <li><strong>Chốt hết mọi sheet</strong> — chỉ khi đó nút "Đóng hồ sơ" mới bật.</li>
+            <li>Xem <strong>checklist Review</strong>: Chứng từ · Bảng kê · TKX/TKN (mục nào thiếu sẽ cảnh báo).</li>
+            <li>Bấm <strong>Đóng hồ sơ</strong> — khoá toàn bộ; sau khi đóng <b>không sửa được</b> bảng kê / chứng từ nữa (có bước xác nhận).</li>
+            <li>Bấm <strong>Xuất hồ sơ .zip</strong> — chạy <b>nền</b>, panel trạng thái cập nhật mỗi 2s. File: <span class="k">&lt;mã hồ sơ&gt;-dossier.zip</span>.</li>
+            <li>Cần sửa lại → <strong>Mở lại hồ sơ</strong> (bỏ khoá).</li>
+          </ol></div>
+        </div>
+        <div class="note tip"><svg class="ni"><use href="#i-tip"/></svg><div><b>Xuất bảng kê HQ</b> (nút trên bảng tổng Bước 3, file <span class="k">&lt;mã hồ sơ&gt;-bang-ke-hq.xlsx</span>) <b>không cần đóng hồ sơ</b> — lấy nhanh bảng kê bất cứ lúc nào. Chỉ <b>bộ dossier .zip tổng hợp</b> mới đòi Đóng hồ sơ trước (để tính đủ TKX/TKN). Bảng kê xuất ra là bản in đúng lưới web — logic đã tính ở bước Tính.</div></div>
+      </article>
+    </section>
+
+    <!-- ============ C. LƯU Ý VẬN HÀNH ============ -->
+    <section class="block sec-act" id="luuy">
+      <div class="block-h"><span class="badge">!</span><h2>Lưu ý vận hành &amp; xử lý sự cố</h2></div>
+      <p class="block-lead">Những điểm hay gặp khi vận hành hằng ngày.</p>
+
+      <article class="guide" id="c1" data-t="lưu ý vận hành sự cố thiếu đơn giá thiếu tồn chốt thứ tự declarability CO không sửa dữ liệu nền">
+        <div class="guide-head"><span class="gid">!</span><h3>Danh sách lưu ý</h3></div>
+        <div class="guide-body wide">
+          <div class="steps"><ul class="plain-list">
+            <li><strong>Công ty mới phải refresh tồn CO 1 lần</strong> (mục B2) trước khi Tính bảng kê — nếu không, NVL sẽ thiếu đơn giá và không chốt được.</li>
+            <li><strong>Chốt theo thứ tự:</strong> các sheet được chốt tuần tự (sheet sau đòi sheet trước đã chốt). Đây là thiết kế để trừ tồn nhất quán.</li>
+            <li><strong>"Thiếu đơn giá / thiếu tồn" → không chốt:</strong> nếu một NVL không có đơn giá (chưa khớp tồn/tờ khai nhập), hệ thống chặn Chốt để tránh phát hành C/O sai LVC. Bổ sung đơn giá / khớp tồn rồi Tính lại.</li>
+            <li><strong>Vật tư chưa phân loại declarability</strong> (<span class="k">customs_relevance</span> rỗng) được giữ lại trên bảng kê (không tự loại rác). Việc phân loại là phía Data Hub.</li>
+            <li><strong>CO không sửa dữ liệu nền:</strong> muốn thêm/sửa danh mục, BOM, tờ khai → làm bên Data Hub, CO sẽ đọc lại.</li>
+          </ul></div>
+        </div>
+        <div class="note warn"><svg class="ni"><use href="#i-warn"/></svg><div>Guard "thiếu đơn giá / thiếu tồn" là <b>chặn cứng</b> ở bước Chốt và bước Xuất — không dùng giá ước tính. Đây là để bảo đảm C/O phát hành có LVC đúng.</div></div>
+        <div class="note tip"><svg class="ni"><use href="#i-tip"/></svg><div><b>Báo lỗi (v0.16).</b> Thao tác lỗi hiện <b>toast tại chỗ</b> với nội dung từ server và giữ nguyên trang; lỗi điều hướng hiện <b>trang báo lỗi có nút Quay lại</b> (không còn JSON thô). Tính năng mới xem mục <b>"Có gì mới"</b> trong app.</div></div>
+      </article>
+
+      <article class="guide" id="c2" data-t="xử lý sự cố empty state trống load bom không ra sheet rỗng tồn rỗng unresolved parse lỗi phân quyền">
+        <div class="guide-head"><span class="gid">?</span><h3>Màn hình trống → thiếu dữ liệu Phần A</h3></div>
+        <div class="guide-body wide">
+          <div class="steps"><div class="tblwrap" style="margin:0"><table class="tb">
+            <thead><tr><th>Triệu chứng trên CO</th><th>Nguyên nhân thường gặp</th><th>Xử lý</th></tr></thead>
+            <tbody>
+              <tr><td>Danh sách hồ sơ / sheet <b>trống</b>, "Tạo hồ sơ" theo số tờ khai xuất không ra sản phẩm</td><td>Chưa nạp <b>BCCT</b> (không có tờ khai xuất)</td><td>Nạp BCCT (A7)</td></tr>
+              <tr><td><b>Load BOM</b> không ra gì / "Chưa có BOM"</td><td>Chưa nạp <b>BOM</b>, hoặc BOM "nông" chưa flatten, hoặc mã không resolve (sai mode/thiếu Quy đổi)</td><td>Nạp + flatten BOM (A8); kiểm mode &amp; Quy đổi (A2b, A6)</td></tr>
+              <tr><td>Refresh tồn CO xong vẫn <b>rỗng</b> / mọi NVL "thiếu đơn giá"</td><td>Chưa nạp <b>BCCT nhập (E11)</b></td><td>Nạp BCCT (A7) rồi refresh tồn (B2)</td></tr>
+              <tr><td>Bảng kê có dòng NVL <b>không tên</b> / mã lạ</td><td>Chưa nạp <b>Danh mục</b>, hoặc mã lô không khớp mã BOM (thiếu <b>Quy đổi</b>)</td><td>Nạp Danh mục (A4); nạp Quy đổi (A6)</td></tr>
+              <tr><td>Nạp file bên Data Hub báo <b>lỗi parse</b> / không thấy dữ liệu xuất hiện</td><td>Sai cột/định dạng, hoặc file đang <b>chờ xác nhận</b> ở cổng map</td><td>Vào tab Tải lên (A9) xem trạng thái; xoá file lỗi, nạp lại; hoàn tất cổng map → Lưu (A5)</td></tr>
+            </tbody>
+          </table></div></div>
+        </div>
+        <div class="note info"><svg class="ni"><use href="#i-info"/></svg><div><b>Phân quyền.</b> Nạp dữ liệu (Phần A) cần tài khoản có quyền <span class="k">can_edit_client</span>; đặt mode khớp mã cần <span class="k">can_edit_client_technical</span>. Tài khoản chỉ-xem không làm được Phần A — nhờ người có quyền hoặc quản trị viên.</div></div>
+      </article>
+    </section>
+  </div>
+</main>
+
+<div class="lb" id="lb"><span class="cls">×</span><img id="lbimg" alt=""></div>
+<button class="themebtn" id="themebtn" aria-label="Đổi nền sáng/tối">◑</button>
+
+<script>
+  const secMeta = {
+    tongquan:{n:'1',c:'var(--run)',t:'Tổng quan'},
+    datahub:{n:'A',c:'var(--data)',t:'Data Hub — dữ liệu nền'},
+    co:{n:'B',c:'var(--start)',t:'CO — 5 bước'},
+    luuy:{n:'!',c:'var(--act)',t:'Lưu ý vận hành'},
+  };
+  const toc = document.getElementById('toc');
+  document.querySelectorAll('section.block').forEach(sec=>{
+    const m = secMeta[sec.id]; if(!m) return;
+    const box = document.createElement('div'); box.className='sec';
+    box.innerHTML = `<div class="sec-h"><span class="pin" style="background:${m.c}"></span>${m.n}. ${m.t}</div>`;
+    sec.querySelectorAll('article.guide').forEach(g=>{
+      const gid = g.querySelector('.gid').textContent;
+      const title = g.querySelector('h3').textContent;
+      const a = document.createElement('a'); a.href='#'+g.id; a.dataset.for=g.id;
+      a.innerHTML = `<span class="n">${gid}</span>${title}`;
+      box.appendChild(a);
+    });
+    toc.appendChild(box);
+  });
+  const guides = [...document.querySelectorAll('article.guide')];
+  document.getElementById('cnt').textContent = guides.length + ' hướng dẫn';
+
+  const q = document.getElementById('q');
+  const noresult = document.getElementById('noresult');
+  const norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/đ/g,'d');
+  q.addEventListener('input', ()=>{
+    const term = norm(q.value.trim());
+    let shown = 0;
+    guides.forEach(g=>{
+      const hay = norm((g.dataset.t||'') + ' ' + g.textContent);
+      const hit = !term || hay.includes(term);
+      g.style.display = hit ? '' : 'none';
+      const link = toc.querySelector(`a[data-for="${g.id}"]`);
+      if(link) link.style.display = hit ? '' : 'none';
+      if(hit) shown++;
+    });
+    document.querySelectorAll('section.block').forEach(sec=>{
+      const any = [...sec.querySelectorAll('article.guide')].some(g=>g.style.display!=='none');
+      sec.style.display = any ? '' : 'none';
+    });
+    document.querySelectorAll('nav.toc .sec').forEach(secBox=>{
+      const any = [...secBox.querySelectorAll('a')].some(a=>a.style.display!=='none');
+      secBox.style.display = any ? '' : 'none';
+    });
+    noresult.classList.toggle('show', shown===0);
+  });
+
+  const links = [...toc.querySelectorAll('a')];
+  const byId = Object.fromEntries(links.map(a=>[a.dataset.for,a]));
+  const io = new IntersectionObserver((ents)=>{
+    ents.forEach(e=>{
+      if(e.isIntersecting){
+        links.forEach(l=>l.classList.remove('active'));
+        const a = byId[e.target.id];
+        if(a){ a.classList.add('active'); a.scrollIntoView({block:'nearest'}); }
+      }
+    });
+  },{rootMargin:'-20% 0px -70% 0px'});
+  guides.forEach(g=>io.observe(g));
+
+  const body = document.body;
+  document.getElementById('burger').onclick = ()=>body.classList.toggle('nav-open');
+  document.getElementById('scrim').onclick = ()=>body.classList.remove('nav-open');
+  toc.addEventListener('click', e=>{ if(e.target.closest('a')) body.classList.remove('nav-open'); });
+
+  const lb = document.getElementById('lb'), lbimg = document.getElementById('lbimg');
+  document.getElementById('content').addEventListener('click', e=>{
+    const img = e.target.closest('figure img');
+    if(img){ lbimg.src = img.src; lb.classList.add('show'); }
+  });
+  lb.onclick = ()=>lb.classList.remove('show');
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') lb.classList.remove('show'); });
+
+  const themebtn = document.getElementById('themebtn');
+  const saved = localStorage.getItem('co-guide-theme');
+  if(saved) document.documentElement.dataset.theme = saved;
+  themebtn.onclick = ()=>{
+    const cur = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = cur;
+    localStorage.setItem('co-guide-theme', cur);
+  };
+</script>
+</body>
+</html>
