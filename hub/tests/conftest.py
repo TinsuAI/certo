@@ -15,13 +15,25 @@ CI DB the user is created by `seed_admin_if_empty` AFTER all
 migrations, so we explicitly bump the role here."""
 from __future__ import annotations
 
+import os
+
 import pytest
 
-from hub.app import auth
-from hub.app.auth.session import hash_password
-from hub.app.database import apply_migrations, connect
-from hub.app.seed import auto_seed_demo_if_empty, seed_parser_rules_if_empty
-from hub.app.seed_master_data import seed_master_data_if_empty
+# Data Hub's connect() defaults to postgresql:///data_hub — the LIVE local dev
+# database. This conftest applies migrations, seeds demo clients, resets the
+# admin password and deletes clients matching `-[0-9a-f]{8}$`, so a bare
+# `pytest` at the repo root would run all of that against real data. Default to
+# the throwaway test database instead; CI and any deliberate run set the env var
+# explicitly and are unaffected. Same class of fix as CO's store-mirror fixture.
+os.environ.setdefault(
+    "DATA_HUB_DATABASE_URL", "postgresql:///co_test?host=/var/run/postgresql"
+)
+
+from hub.app import auth  # noqa: E402
+from hub.app.auth.session import hash_password  # noqa: E402
+from hub.app.database import apply_migrations, connect  # noqa: E402
+from hub.app.seed import auto_seed_demo_if_empty, seed_parser_rules_if_empty  # noqa: E402
+from hub.app.seed_master_data import seed_master_data_if_empty  # noqa: E402
 
 
 def _sweep_test_junk_clients() -> None:
