@@ -66,14 +66,15 @@ round — identify a build by `git_sha`.
      VCCI-certified under `05/2018/TT-BCT` (Form B's circular), used on a domestic on-the-spot
      delivery. Evidence and the correct entry are in `.ai/BACKLOG.md` under FX1. The branch can
      be deleted; FX1 itself is low priority and stays open.
-4. **The async offload covers 3 of ~28 handlers.** `03220aa` fixes `co_case_detail`,
-   `co_case_step` and the substitute-candidates endpoint. 25 other `async def` handlers in
-   `app/routers/co_case.py` still call `co_case_context` / `persisted_origin_case` directly on
-   the event loop, including the write paths `lock_co_case_origin_sheet` and
-   `co_case_origin_sheet_save`. Separately, the fire-and-forget
-   `run_in_executor(None, preload_co_case_origin_context, ...)` next to the new code does NOT
-   copy contextvars, so that preload likely runs without a Data Hub token — pre-existing, worth
-   its own look.
+4. **Architecture review of the CO case request path — user directive 2026-08-21**, captured as
+   **P2** in `.ai/BACKLOG.md` with the full measurement. Short version: prod runs
+   `uvicorn --workers 1`, so one event loop per container, and ten `async def` handlers still
+   call the synchronous `co_case_context` (a blocking Data Hub pull, up to ~104s on Johnson)
+   with no `await` — Nạp BOM, Tính, Chốt, Mở chốt, lưu, export, upload, delete, case list and
+   calculation-payload. `03220aa` fixed the three hottest (case open, workflow step, thay-thế
+   modal). A lone operator is unaffected; two on one container are not. **Do not patch these
+   handler-by-handler before the architecture call is made** — the user's words were that the
+   path is "loằng ngoằng và tạo độ trễ nhiều quá".
 5. **Backlog items still open** (see the 2026-08-21 table in `.ai/BACKLOG.md`): M1 sub-bug 1
    (`get_bom_proposal` has 0 callers — CO-side wiring, no DH request needed), FX1, D1's
    `reason`/forced-full in the refresh response, D1 tombstone retry (partial), EX1 (deferred by

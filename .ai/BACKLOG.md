@@ -398,6 +398,65 @@ Added: 2026-06-14.
 
 ## Performance
 
+### P2 — Review kiến trúc request path của CO case (user directive 2026-08-21)
+
+**User directive 2026-08-21:** "chắc tao phải review hết cái kiến trúc này, nó loằng ngoằng và
+tạo độ trễ nhiều quá." Scope is the whole case request path, not the individual handlers below —
+those are the symptom that prompted it. Not yet scoped; do not start patching handler-by-handler
+before the architecture call is made.
+
+**What is measured today.**
+
+`Dockerfile:41` runs `uvicorn --workers 1`, so there is exactly one event loop per container.
+Handlers declared `async def` run directly on it and can only yield at an `await`. Ten handlers
+still call `co_case_context(...)` — a synchronous function that makes a blocking Data Hub HTTP
+call and paginates BCCT — with no `await`, so for the duration of that call the loop serves
+nothing else: no other operator's page, no static files, no `/healthz`. The 2026-07-30 perf audit
+measured that pull at up to ~104s on Johnson.
+
+Fixed in `03220aa` (2026-08-21): `GET /co-case/{id}` (open a case),
+`GET /co-case/{id}/{step}` (workflow step), `GET …/substitute-candidates` (thay-thế modal).
+
+Still blocking the loop, by operator action:
+
+| Route | Action |
+|---|---|
+| `GET /clients/{id}/co-case` | case list |
+| `POST …/origin/sheet/{code}/load-bom` | Nạp BOM |
+| `POST …/origin/sheet/{code}/calculate` | Tính |
+| `POST …/origin/sheet/{code}/lock` | Chốt |
+| `POST …/origin/sheet/{code}/reopen` | Mở chốt |
+| `POST …/origin/sheet/{code}/save` | lưu bảng kê |
+| `POST …/co-case/{id}/export` | export |
+| `POST …/co-case/{id}/supporting-files` | upload chứng từ |
+| `POST …/co-case/{id}/delete` | xoá hồ sơ |
+| `GET …/origin/calculation-payload` | trang tự lấy số |
+
+Handlers that only call `persisted_origin_case` are NOT in this list: that is
+`get_case_record` + `case_from_record` (`routers/co_case.py:40`), a local store read, not a DH
+pull. The 30s autosave also does **not** belong here — it posts to `/origin/autosave`, whose
+handler makes no DH call. So the blocking happens on deliberate actions only, not in the
+background.
+
+**Blast radius.** A single operator working alone sees no difference — blocking the loop does not
+slow your own request. It is a throughput / tail-latency problem: with two or more operators on
+the same container, one person pressing Tính freezes the other's page. `/healthz` shares the loop
+and the container healthcheck is `interval=10s timeout=3s retries=12`, so ~120s of continuous
+blocking would mark it unhealthy — above the measured ~104s worst case, but not by much.
+
+**The mechanical fix, if the architecture review decides to keep this shape.** Wrap each call as
+`await asyncio.to_thread(co_case_context, ...)`. Same args, same return value, only the thread
+changes; `03220aa` is the worked example and `tests/test_co_case_async_offload.py` the test
+pattern (assert the pull ran off `threading.main_thread()`). Note `asyncio.to_thread` copies
+contextvars, so the request-scoped `CURRENT_DATA_HUB_TOKEN` is inherited correctly.
+
+**Adjacent finding, worth folding into the same review.** The fire-and-forget
+`run_in_executor(None, preload_co_case_origin_context, ...)` in `co_case_detail` does NOT copy
+contextvars (unlike `to_thread`), so that preload likely runs with no Data Hub token. Pre-existing;
+`dossier_export_service.py:12` documents awareness of the same request-scoped-token problem.
+
+Added: 2026-08-21.
+
 ### P1 — "Tạo hồ sơ" → mở "Bảng kê C/O" lần đầu chậm
 **DONE 2026-06-08 (origin cold-load) — merged + deployed `a1ac2ed`.** Brief
 `.ai/features/2026-06-08-origin-cold-load-perf.md`. Chẩn đoán ban đầu ("full BCCT pull ~40s") SAI:
