@@ -12,9 +12,10 @@ Hub half over HTTP exactly as before — that swap is phase 1.
 
 | Check | Before (two repos) | After (this repo) |
 |---|---|---|
-| CO suite | 1181 passed / 21 skipped | **1181 passed / 21 skipped / 0 failed** |
+| CO suite, live store | 1183 passed / 19 skipped, **8m13s, 2.0 GB peak** | same set, at parity |
+| CO suite, one store-heavy file | 186 passed / 7 skipped, 32.77s, 429 MB | **186 passed / 7 skipped, 28.68s, 432 MB** |
 | Data Hub suite (fresh DB) | 4 failed / 1685 passed / 18 skipped | **4 failed / 1684 passed / 19 skipped** |
-| Both suites, one bare `pytest` | n/a — impossible | **4 failed / 2866 passed / 39 skipped** |
+| Both suites, one bare `pytest` | n/a — impossible | **4 failed / 2866 passed / 39 skipped, 10m44s, 2.2 GB peak** |
 | `npm test` | 57 passed | **57 passed / 0 failed** |
 | Databases | `barry_co` + `data_hub` | **`co_merged`** (schemas `co` + `hub`) |
 | Venvs | two | **one** |
@@ -205,3 +206,43 @@ deletes clients matching `-[0-9a-f]{8}$`. Documenting the hazard was not enough.
 now calls `os.environ.setdefault("DATA_HUB_DATABASE_URL", …co_test)` before the first `connect()`.
 CI sets the variable explicitly, so it is unaffected. Verified by recording
 `select count(*) from hub.clients` on the live database before and after a full bare run: 7 → 7.
+
+## Addendum 2 — the fourth collision, which reached live data
+
+`hub/app/storage/__init__.py` and `hub/app/data_promotion.py` resolved their file root as
+`Path(os.environ.get("DATA_HUB_FILES_ROOT", "data/files"))` — **relative to the working
+directory**. In the `data-hub` repo that meant `data-hub/data/files`. From this repo's root it
+resolves through the gitignored `data -> ../barry-CO-bom-data` symlink, so a full test run
+created a `files/` tree inside CO's **live app data directory** and wrote 16 Data Hub upload
+artifacts into it (`test-bulk-zip-vn`, `raw_bom_test_client`).
+
+Nothing existing was overwritten — the `files/` tree had never existed in the live store, and CO
+code never reads it. It was backed up and removed; the live store is back to
+`derived/ extracted/ local/ seed/ source/`, with its most recent write predating this work.
+
+Both call sites now derive the default from `__file__`. Re-verified with a full combined run:
+**0 files written anywhere under the live store.**
+
+Why the earlier sweep missed it: the search covered path literals inside `Path(...)` and only
+under `hub/tests` and `hub/scripts`. This one is a default argument inside `os.environ.get()`,
+in `hub/app`. Both shapes have now been swept across all of `hub/`; no others remain.
+
+The generalisable lesson for phases 1–6: **every CWD-relative path in the Data Hub half is a
+live-data hazard in this repo**, because the merged root has CO's `data` symlink in it. The four
+collisions found so far — `app`, `scripts`/`tests`, `Path("…")` literals, and env-var defaults —
+were each silent rather than an error.
+
+## Timing, and what it says about the architecture
+
+| Suite | Time | Peak RSS |
+|---|---|---|
+| CO alone, `barry-CO-main`, live store | 8m13s | 2.0 GB |
+| CO + Data Hub, this repo, live store | 10m44s | 2.2 GB |
+
+The merge costs about 2.5 minutes, which is the Data Hub suite's own runtime. There is no
+regression: CO's portion is unchanged.
+
+The 8-minute, 2 GB figure is worth keeping for a different reason. It is the same defect as the
+app's latency, measured through the test suite — parsing 93 MB JSON store files and recomputing
+derived state on every read. Cause #2 in the assessment, the one phase 4 targets. When phase 4
+lands, this number should move.

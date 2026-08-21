@@ -15,7 +15,7 @@ either. Read these two before anything else:
 
 | | Result |
 |---|---|
-| `pytest` (both suites, one run) | **2866 passed, 39 skipped, 4 failed** |
+| `pytest` (both suites, one run) | **2866 passed, 39 skipped, 4 failed** — 10m44s, 2.2 GB peak, 0 writes to the live store |
 | `npm test` | **57 passed, 0 failed** |
 | Database | `co_merged` — schemas `co` (38 tables / 731,733 rows) + `hub` (52 / 1,630,164) |
 | Git history | 1041 commits; both repos' histories preserved |
