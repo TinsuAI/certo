@@ -27,6 +27,7 @@ from fastapi.responses import JSONResponse
 from hub.app import auth
 from hub.app import jwt_issuer, markets, settings_store
 from hub.app.database import connect
+from hub.app.services import bcct as bcct_service
 from hub.app.services import materials as materials_service
 from hub.app.services.materials import (
     _MATERIALS_SELECT_WITH_ROLES,
@@ -543,79 +544,23 @@ async def api_list_bcct(
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
     offset, safe_limit = _page_args(cursor, limit)
-    sql = """
-        select client_id, year, transaction_key, line_no, declaration_no,
-               declaration_type, direction, registration_date,
-               customs_code, goods_name, hs_code,
-               quantity, unit,
-               unit_price, unit_price_nt,
-               total_value, total_value_nt,
-               currency_nt, total_tax, unloading_location,
-               origin, invoice_ref,
-               exporter_name, exporter_tax_code, consignee_name, incoterms,
-               weight, weight_unit, package_count, package_unit,
-               invoice_date, departure_date,
-               destination_code, destination_name,
-               transport_mode, exchange_rate,
-               artifact_id, indexed_at
-        from hub.bcct_rows where client_id = %s
-    """
-    params: list = [client_id]
-    if year:
-        sql += " and year = %s"
-        params.append(year)
-    if direction:
-        sql += " and direction = %s"
-        params.append(direction)
-    if declaration_no:
-        sql += " and declaration_no = %s"
-        params.append(declaration_no)
-    if since_ts is not None:
-        sql += " and indexed_at > %s"
-        params.append(since_ts)
-    sql += " order by registration_date desc nulls last, declaration_no, line_no limit %s offset %s"
-    params.extend([safe_limit + 1, offset])
-    server_time = datetime.now(timezone.utc)
-    tombstones: list[dict] = []
-    with connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql, params)
-            cols = [d[0] for d in cur.description]
-            items = [dict(zip(cols, r)) for r in cur.fetchall()]
-            if want_tombstones and offset == 0:
-                # Spec: tombstones are returned in full on the first page.
-                # Subsequent pages have tombstones=[] (kept as empty array
-                # only when include_tombstones=true was requested).
-                cur.execute(
-                    """
-                    select transaction_key, changed_at, changed_by
-                      from hub.bcct_row_history
-                     where client_id = %s
-                       and action = 'delete'
-                       and changed_at > %s
-                     order by changed_at desc
-                    """,
-                    (client_id, since_ts),
-                )
-                tombstones = [
-                    {
-                        "transaction_key": tk,
-                        "removed_at": removed_at,
-                        "reason": changed_by or "system",
-                    }
-                    for tk, removed_at, changed_by in cur.fetchall()
-                ]
-    if include_material_identity:
-        _attach_material_identity(
-            items, client_id=client_id, candidate_limit=cand_limit,
-        )
-    else:
-        for it in items:
-            it.pop("material_identity", None)
-    payload = _paged(items, offset=offset, limit=safe_limit)
-    payload["server_time"] = server_time
+    result = bcct_service.list_bcct(
+        client_id,
+        year=year,
+        direction=direction,
+        declaration_no=declaration_no,
+        since_ts=since_ts,
+        offset=offset,
+        limit=safe_limit,
+        fetch_extra=True,
+        include_material_identity=include_material_identity,
+        candidate_limit=cand_limit,
+        want_tombstones=want_tombstones,
+    )
+    payload = _paged(result["items"], offset=offset, limit=safe_limit)
+    payload["server_time"] = result["server_time"]
     if want_tombstones:
-        payload["tombstones"] = tombstones
+        payload["tombstones"] = result["tombstones"]
     return _json(payload)
 
 

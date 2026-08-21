@@ -128,11 +128,7 @@ class InProcessDataHubClient(DataHubClient):
 
         self._authorize(client_id)
         if not _client_exists(client_id):
-            raise httpx.HTTPStatusError(
-                "Client not found",
-                request=httpx.Request("GET", f"{self.base_url}/v1/hub/materials"),
-                response=httpx.Response(404),
-            )
+            raise _not_found(self.base_url, "/v1/hub/materials")
         return materials_service.list_materials(
             client_id,
             category=query.get("category"),
@@ -140,11 +136,90 @@ class InProcessDataHubClient(DataHubClient):
             limit=None,
         )
 
+    def list_bcct(self, client_id: str, **query) -> list[dict]:
+        """One query instead of a 66-page OFFSET walk. 5.62s -> 2.66s."""
+        return self._bcct(client_id, query)["items"]
+
+    def list_bcct_with_envelope(
+        self,
+        client_id: str,
+        *,
+        since: str = "",
+        include_tombstones: bool = False,
+        **query,
+    ) -> dict:
+        """Envelope variant the delta-refresh path needs: items + server_time
+        + tombstones. Same single-query shortcut as `list_bcct`."""
+        result = self._bcct(
+            client_id,
+            query,
+            since=since,
+            want_tombstones=bool(since and include_tombstones),
+        )
+        return {
+            "items": result["items"],
+            "tombstones": result["tombstones"],
+            "server_time": result["server_time"],
+        }
+
+    def bcct_server_time(self, client_id: str) -> str:
+        """High-water-mark probe. Over HTTP this fetched page 1 to read one
+        field; here it is just the clock, with no rows touched at all."""
+        from datetime import datetime, timezone
+
+        self._authorize(client_id)
+        return _iso(datetime.now(timezone.utc))
+
+    def _bcct(self, client_id: str, query: dict, *, since: str = "", want_tombstones: bool = False) -> dict:
+        from hub.app.routes.api import _parse_since, _validate_pid_candidate_limit
+        from hub.app.services import bcct as bcct_service
+
+        self._authorize(client_id)
+        if not _client_exists(client_id):
+            raise _not_found(self.base_url, "/v1/hub/bcct")
+        raw_identity = query.get("include_material_identity")
+        include_identity = str(raw_identity).lower() in {"1", "true", "yes"} if raw_identity is not None else False
+        result = bcct_service.list_bcct(
+            client_id,
+            year=query.get("year"),
+            direction=query.get("direction"),
+            declaration_no=query.get("declaration_no"),
+            since_ts=_parse_since(since or query.get("since")),
+            limit=None,
+            include_material_identity=include_identity,
+            candidate_limit=_validate_pid_candidate_limit(
+                query.get("material_identity_candidate_limit")
+            ),
+            want_tombstones=want_tombstones,
+        )
+        # The HTTP path JSON-encodes before CO sees it; match that shaping so
+        # downstream code (the (max(indexed_at), row_count) snapshot marker in
+        # particular) sees strings where it always saw strings.
+        from hub.app.services.materials import serialize
+
+        return {
+            "items": serialize(result["items"]),
+            "tombstones": serialize(result["tombstones"]),
+            "server_time": _iso(result["server_time"]),
+        }
+
     def close(self) -> None:
         transport = getattr(self._client, "_transport", None)
         super().close()
         if isinstance(transport, SyncASGITransport):
             transport.close()
+
+
+def _iso(value) -> str:
+    return value.isoformat() if hasattr(value, "isoformat") else str(value or "")
+
+
+def _not_found(base_url: str, path: str) -> httpx.HTTPStatusError:
+    return httpx.HTTPStatusError(
+        "Client not found",
+        request=httpx.Request("GET", f"{base_url}{path}"),
+        response=httpx.Response(404),
+    )
 
 
 def _client_exists(client_id: str) -> bool:
