@@ -3,8 +3,12 @@
   --radius-md: 5px;
   --radius-lg: 8px;
   --radius-xl: 12px;
-  --sans: "Inter", "Be Vietnam Pro", -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
-  --display: "Be Vietnam Pro", "Inter", system-ui, sans-serif;
+  /* Be Vietnam Pro carries the whole interface. It is drawn for Vietnamese —
+     stacked tone marks, đ/ơ/ư — which is the language every operator reads all
+     day; Inter renders those as afterthoughts. Mono is not decoration here:
+     tờ khai numbers, HS codes and money are columnar data and must align. */
+  --sans: "Be Vietnam Pro", -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+  --display: "Be Vietnam Pro", system-ui, sans-serif;
   --mono: "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, monospace;
   --radius-pill: 999px;
   --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem;
@@ -19,126 +23,130 @@
 
 body[data-theme="light"] {
   color-scheme: light;
-  --background: #f6f7f9;
-  --background-top: #ffffff;
-  --background-accent: rgba(29,53,87,0.04);
-  --background-accent-2: rgba(29,53,87,0.02);
-  --foreground: #0f172a;
-  --foreground-soft: #475569;
-  --foreground-muted: #616e83;
-  --card: #ffffff;
-  --card-muted: #f8fafc;
-  --menu-surface: #ffffff;
-  --surface-subtle: #f8fafc;
-  --surface-hover: #f1f5f9;
-  --surface-overlay: rgba(255,255,255,0.96);
+  /* "Sổ" — the register. The ground is the safety tint of Vietnamese official
+     form paper: grey carrying a faint olive cast, so it is neither the white of
+     a web app nor the cream of a document mockup. Ink shares that cast, which
+     keeps text and paper in one family and leaves red as the only thing on
+     screen that is a different kind of colour. */
+  --background: #edeeea;
+  --background-top: #f6f7f3;
+  --background-accent: rgba(26,28,24,0.045);
+  --background-accent-2: rgba(26,28,24,0.02);
+  --foreground: #1a1c18;
+  --foreground-soft: #4a4e44;
+  --foreground-muted: #6e7267;
+  --card: #fcfcfa;
+  --card-muted: #f4f5f0;
+  --menu-surface: #fcfcfa;
+  --surface-subtle: #f4f5f0;
+  --surface-hover: #e9ebe4;
+  --surface-overlay: rgba(252,252,250,0.97);
   --surface-input: #ffffff;
-  --surface-sunk: #f1f5f9;
-  --border: #e2e8f0;
-  --border-strong: #cbd5e1;
-  --primary: #1d3557;
-  --primary-hover: #16294a;
-  --primary-soft: #eef2f7;
-  --primary-foreground: #ffffff;
-  --success: #166534;
-  --warning: #92400e;
-  --error: #991b1b;
-  --info: #1e40af;
-  --stale: #616e83;
-  --success-soft: #dcfce7;
-  --warning-soft: #fef3c7;
-  --error-soft: #fdecec;
-  --info-soft: #dbeafe;
-  --success-bd: #bbf7d0;
-  --warning-bd: #fcd99a;
-  --critical-bd: #f5c2c2;
-  --info-bd: #bfdbfe;
-  --muted-bd: #e2e8f0;
-  --shadow-md: 0 1px 2px rgba(15,29,59,.06);
-  --shadow-lg: 0 12px 32px rgba(15,29,59,.14);
-  /* Navy identity ramp — app chrome (header bar, sidebar active tint, table
-     row hover/selection). Shared by CO and Data Hub so one action colour
-     survives a move between the two apps. */
-  --brand-50: #eef2f7;
-  --brand-100: #d6dfeb;
-  --brand-200: #b9c8dd;
-  --brand-500: #1d3557;
-  --brand-600: #16294a;
-  --brand-700: #0f1d3b;
-  /* Indigo logic ramp — decision tables, expressions, rule-engine traces.
-     Data = navy, logic = indigo; the two ramps never mix. */
-  --logic-50: #eef2ff;
-  --logic-100: #e0e7ff;
-  --logic-200: #c7d2fe;
-  --logic-500: #4338ca;
-  --logic-600: #3730a3;
-  --logic-700: #312e81;
-  /* App-identity accent ONLY (monogram, identity chip). CO is the logic /
-     calculation plane, so its identity colour is indigo. NOT an action
-     accent — links, primary buttons and active states stay on --primary. */
-  --brand: #4338ca;
-  --brand-foreground: #ffffff;
+  --surface-sunk: #e9ebe4;
+  --border: #d5d7ce;
+  --border-strong: #b9bcb0;
+  /* Actions are ink, not a brand colour. A button competing with the data is
+     the thing that made this screen loud. */
+  --primary: #2e3a31;
+  --primary-hover: #1f2922;
+  --primary-soft: #e4e8e0;
+  --primary-foreground: #fcfcfa;
+  --success: #3d6b4a;
+  --warning: #8a6516;
+  --error: #a5262a;
+  --info: #3a5570;
+  --stale: #6e7267;
+  --success-soft: #e2ece3;
+  --warning-soft: #f5edd8;
+  --error-soft: #f5e2e1;
+  --info-soft: #e3e9ee;
+  --success-bd: #bfd3c2;
+  --warning-bd: #e0cfa0;
+  --critical-bd: #e0bdbb;
+  --info-bd: #c3d0da;
+  --muted-bd: #d5d7ce;
+  /* Flat. A register is ruled, not stacked — depth goes to overlays only. */
+  --shadow-md: 0 1px 0 rgba(26,28,24,.05);
+  --shadow-lg: 0 8px 28px rgba(26,28,24,.14);
+  --brand-50: #e4e8e0;
+  --brand-100: #d3d9cc;
+  --brand-200: #bcc4b3;
+  --brand-500: #2e3a31;
+  --brand-600: #232d26;
+  --brand-700: #1a221c;
+  /* Second plane: decision tables and rule traces. Slate, deliberately duller
+     than the ink ramp so logic never outranks the data it explains. */
+  --logic-50: #e8ebee;
+  --logic-100: #d7dde3;
+  --logic-200: #bcc7d1;
+  --logic-500: #3f5163;
+  --logic-600: #33424f;
+  --logic-700: #27323c;
+  /* Con dấu. The one accent, and the only saturated colour in the interface:
+     an official Vietnamese seal is red and it means the state has acted. Used
+     for the monogram, for a chốt stamp, and for a condition that stops work —
+     nothing else, or it stops meaning anything. */
+  --brand: #a5262a;
+  --brand-foreground: #fcfcfa;
 }
 
 body[data-theme="dark"] {
   color-scheme: dark;
-  --background: #0f172a;
-  --background-top: #0b1220;
-  --background-accent: rgba(125,162,209,0.10);
-  --background-accent-2: rgba(125,162,209,0.06);
-  --foreground: #e2e8f0;
-  --foreground-soft: #cbd5e1;
-  --foreground-muted: #94a3b8;
-  --card: #1e293b;
-  --card-muted: #0f172a;
-  --menu-surface: #1e293b;
-  --surface-subtle: #1e293b;
-  --surface-hover: #334155;
-  --surface-overlay: rgba(15,23,42,0.94);
-  --surface-input: #0f172a;
-  --surface-sunk: #0f172a;
-  --border: #334155;
-  --border-strong: #475569;
-  --primary: #7da2d1;
-  --primary-hover: #9bbbe4;
-  --primary-soft: rgba(125,162,209,.16);
-  /* Dark --primary is a light slate-blue: white on it reads at ~2:1, so the
-     text that sits on a primary fill flips to the dark ground instead. */
-  --primary-foreground: #0b1220;
-  --success: #4ade80;
-  --warning: #fbbf24;
-  --error: #f87171;
-  --info: #7da2d1;
-  --stale: #94a3b8;
-  --success-soft: rgba(74,222,128,0.15);
-  --warning-soft: rgba(251,191,36,0.15);
-  --error-soft: rgba(248,113,113,0.15);
-  --info-soft: rgba(125,162,209,0.15);
-  --success-bd: rgba(74,222,128,0.36);
-  --warning-bd: rgba(251,191,36,0.36);
-  --critical-bd: rgba(248,113,113,0.36);
-  --info-bd: rgba(125,162,209,0.36);
-  --muted-bd: #334155;
-  --shadow-md: 0 1px 2px rgba(2,6,23,.5);
-  --shadow-lg: 0 16px 40px rgba(2,6,23,.6);
-  /* Navy ramp, dark-tuned. 500-700 stay dark enough to carry white text (the
-     header bar); the 50-200 tints are translucent slate-blue so an active
-     sidebar row or a hovered table row reads against the dark card. */
-  --brand-50: rgba(125,162,209,0.13);
-  --brand-100: rgba(125,162,209,0.22);
-  --brand-200: rgba(125,162,209,0.32);
-  --brand-500: #1e3a5f;
-  --brand-600: #16294a;
-  --brand-700: #0f1d3b;
-  --logic-50: rgba(129,140,248,0.13);
-  --logic-100: rgba(129,140,248,0.22);
-  --logic-200: rgba(129,140,248,0.32);
-  --logic-500: #818cf8;
-  --logic-600: #a5b4fc;
-  --logic-700: #c7d2fe;
-  /* App-identity accent (see light block). Dark-tuned indigo. */
-  --brand: #818cf8;
-  --brand-foreground: #0b1220;
+  /* Night shift on the same paper: the olive cast is kept but inverted, so the
+     app reads as the same document under a desk lamp rather than a different
+     product. */
+  --background: #16190f;
+  --background-top: #101208;
+  --background-accent: rgba(214,219,196,0.10);
+  --background-accent-2: rgba(214,219,196,0.05);
+  --foreground: #e8eae1;
+  --foreground-soft: #c8ccbc;
+  --foreground-muted: #93988a;
+  --card: #1f2318;
+  --card-muted: #191c12;
+  --menu-surface: #1f2318;
+  --surface-subtle: #1f2318;
+  --surface-hover: #2c3122;
+  --surface-overlay: rgba(22,25,15,0.95);
+  --surface-input: #101208;
+  --surface-sunk: #101208;
+  --border: #333827;
+  --border-strong: #4a5138;
+  --primary: #bcc9a8;
+  --primary-hover: #d2dcc2;
+  --primary-foreground: #101208;
+  --primary-soft: rgba(188,201,168,.16);
+  --success: #86c295;
+  --warning: #dcb45f;
+  --error: #e0837f;
+  --info: #9db4c9;
+  --stale: #93988a;
+  --success-soft: rgba(134,194,149,0.15);
+  --warning-soft: rgba(220,180,95,0.15);
+  --error-soft: rgba(224,131,127,0.15);
+  --info-soft: rgba(157,180,201,0.15);
+  --success-bd: rgba(134,194,149,0.36);
+  --warning-bd: rgba(220,180,95,0.36);
+  --critical-bd: rgba(224,131,127,0.36);
+  --info-bd: rgba(157,180,201,0.36);
+  --muted-bd: #333827;
+  --shadow-md: 0 1px 0 rgba(0,0,0,.5);
+  --shadow-lg: 0 16px 40px rgba(0,0,0,.6);
+  --brand-50: rgba(188,201,168,0.12);
+  --brand-100: rgba(188,201,168,0.20);
+  --brand-200: rgba(188,201,168,0.30);
+  --brand-500: #2c3122;
+  --brand-600: #232719;
+  --brand-700: #191c12;
+  --logic-50: rgba(157,180,201,0.12);
+  --logic-100: rgba(157,180,201,0.20);
+  --logic-200: rgba(157,180,201,0.30);
+  --logic-500: #9db4c9;
+  --logic-600: #b6c8d8;
+  --logic-700: #d0dbe6;
+  /* Seal red lifted just enough to stay legible on the dark ground. */
+  --brand: #d4534f;
+  --brand-foreground: #101208;
 }
 * {
   box-sizing: border-box;
@@ -10744,17 +10752,22 @@ td > .tbl-empty { padding: 28px 16px; }
 [data-co-case-shell] .workflow-step.rail-s.workflow-step-active {
   border-color: transparent;
   background: none;
-  color: var(--brand-600);
+  /* --primary, not --brand-600: the brand ramp's 600 step is a dark ink in
+     light and a low-opacity tint in dark, so the active step's own label
+     disappeared against the dark ground. --primary is defined to carry text
+     in both themes. */
+  color: var(--primary);
   font-weight: 600;
 }
 
 [data-co-case-shell] .workflow-step.rail-s.workflow-step-active strong {
-  color: var(--brand-600);
+  /* Same reason as the rule above — this is the visible step name. */
+  color: var(--primary);
 }
 
 [data-co-case-shell] .workflow-step.rail-s.workflow-step-active::before {
-  background: var(--brand-500);
-  box-shadow: 0 0 0 3px var(--brand-100);
+  background: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
 [data-co-case-shell] .workflow-step.rail-s.workflow-step-done {
@@ -11185,3 +11198,154 @@ td > .tbl-empty { padding: 28px 16px; }
 }
 
 /* === end co-case workspace — follow-ups (redesign 2026-08-20) === */
+
+/* ── "Sổ" redesign ───────────────────────────────────────────────────────────
+   Structure, not colour. The palette moved in the token blocks above; what
+   follows fixes the thing that actually made these screens hard to read —
+   chrome outranking the work. */
+
+/* Sidebar: the operator's daily job is the dossier and the source data behind
+   it. Configuration is read once at onboarding and then never again, so it
+   folds away instead of paying for four permanent rows. */
+.side-fold { border: 0; }
+.side-fold > summary.side-grp-fold {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  user-select: none;
+}
+.side-fold > summary.side-grp-fold::-webkit-details-marker { display: none; }
+.side-fold > summary.side-grp-fold::after {
+  content: "";
+  width: 5px; height: 5px;
+  margin-inline-start: auto;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  opacity: .55;
+  transition: transform .15s ease;
+}
+.side-fold[open] > summary.side-grp-fold::after { transform: rotate(45deg); }
+.side-fold > summary.side-grp-fold:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .side-fold > summary.side-grp-fold::after { transition: none; }
+}
+
+/* The stock panel folds. Closed is the default: this page answers "which
+   dossiers need me", and the stock position is reference. The summary line
+   keeps the three figures that matter visible either way. */
+.co-stock-fold > summary.co-stock-fold-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-1) 0;
+  user-select: none;
+}
+.co-stock-fold > summary.co-stock-fold-summary::-webkit-details-marker { display: none; }
+.co-stock-fold > summary.co-stock-fold-summary > .num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-lg);
+}
+.co-stock-fold > summary.co-stock-fold-summary::after {
+  content: "xem chi tiết";
+  margin-inline-start: auto;
+  font-size: var(--fs-xs);
+  color: var(--foreground-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.co-stock-fold[open] > summary.co-stock-fold-summary::after { content: "thu gọn"; }
+.co-stock-fold > summary.co-stock-fold-summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.co-stock-fold[open] .co-stock-overview-head { margin-top: var(--space-4); }
+
+/* The lô-wide effective config, said once above the register instead of
+   copied onto every row. */
+.origin-review-uniform {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+  padding: 0 var(--space-2);
+}
+.origin-review-uniform > strong {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  letter-spacing: -0.01em;
+}
+
+/* Numbers are columnar data — they line up or they cannot be compared. */
+.num, .mono, .origin-metric-chip strong { font-variant-numeric: tabular-nums; }
+
+/* Occasional actions fold into a disclosure so the three daily ones stand
+   alone. Anchored, not inline, so opening it does not reflow the register. */
+.origin-toolbar-more { position: relative; }
+.origin-toolbar-more > summary.origin-toolbar-more-summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.34rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  color: var(--foreground-soft);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.origin-toolbar-more > summary::-webkit-details-marker { display: none; }
+.origin-toolbar-more > summary.origin-toolbar-more-summary::after {
+  content: "";
+  width: 5px; height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  opacity: .6;
+}
+.origin-toolbar-more > summary.origin-toolbar-more-summary:hover { background: var(--surface-hover); }
+.origin-toolbar-more > summary.origin-toolbar-more-summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.origin-toolbar-more-body {
+  position: absolute;
+  z-index: 30;
+  inset-inline-end: 0;
+  margin-top: var(--space-2);
+  min-width: 22rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--menu-surface);
+  box-shadow: var(--shadow-lg);
+}
+@media (max-width: 720px) {
+  .origin-toolbar-more-body { position: static; min-width: 0; box-shadow: none; }
+}
+
+/* When every sheet shares the lô's configuration the column has nothing to
+   say, so it stops occupying a sixth of the row. */
+.origin-review-table.orr-config-empty .origin-review-row {
+  grid-template-columns: 3.4rem minmax(8rem, 1.6fr) 7.5rem minmax(6rem, 1fr) 0 minmax(9rem, 1.5fr) 1.4rem;
+}
+.origin-review-table.orr-config-empty .orr-config {
+  padding: 0;
+  overflow: hidden;
+  visibility: hidden;
+}

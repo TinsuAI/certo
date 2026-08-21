@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ t('app.brand') }}{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_prefix }}/static/css/app.css">
+  {% block head_extra %}{% endblock %}
+</head>
+<body data-theme="{{ theme }}">
+  <header class="topnav">
+    <a class="brand" href="/">
+      <span class="brand-mark">DH</span>
+      <span class="brand-name">{{ t('app.brand') }}</span>
+    </a>
+    {% if user %}
+    <span class="topnav-sep" aria-hidden="true"></span>
+    {% if client %}
+    <a class="client-switch" href="{{ url_prefix }}/clients" title="{{ t('nav.switch_client') }}">
+      <span class="client-switch-av">{{ client.name[:2]|upper }}</span>
+      <span class="client-switch-body">
+        <span class="client-switch-name">{{ client.name }}</span>
+        <span class="client-switch-id">{{ client.client_id }}</span>
+      </span>
+      <span class="client-switch-caret" aria-hidden="true">⇅</span>
+    </a>
+    {% else %}
+    <a class="client-switch client-switch-empty" href="{{ url_prefix }}/clients">{{ t('nav.pick_client') }}</a>
+    {% endif %}
+    <div class="topnav-meta">
+      {# Notification bell tạm tắt — bật lại bằng cách bỏ comment khi tính năng hoàn thiện. #}
+      {# {% include "notifications/_bell.html" ignore missing %} #}
+      <details class="nav-menu user-menu">
+        <summary class="user-avatar" title="{{ user.display_name }} · {{ user.role }}">
+          <span class="user-avatar-mark">{{ user.display_name[:1]|upper }}</span>
+          <span class="user-avatar-name">{{ user.display_name }}</span>
+        </summary>
+        <div class="nav-menu-panel user-menu-panel">
+          <div class="user-menu-head">
+            <strong>{{ user.display_name }}</strong>
+            <span class="meta">{{ user.role }}</span>
+          </div>
+          <form method="post" action="{{ url_prefix }}/settings/theme" class="user-menu-form">
+            <input type="hidden" name="theme" value="{{ next_theme }}">
+            <input type="hidden" name="next_url" value="{{ request.url.path }}">
+            <button type="submit" class="user-menu-item">
+              {{ t('ui.theme.toggle') }} · {{ t('ui.theme.' + next_theme) }}
+            </button>
+          </form>
+          <form method="post" action="{{ url_prefix }}/settings/lang" class="user-menu-form">
+            <input type="hidden" name="lang" value="{{ next_lang }}">
+            <input type="hidden" name="next_url" value="{{ request.url.path }}">
+            <button type="submit" class="user-menu-item">{{ t('ui.lang.toggle') }} · {{ next_lang|upper }}</button>
+          </form>
+          <form method="post" action="{{ url_prefix }}/logout" class="user-menu-form">
+            <button type="submit" class="user-menu-item user-menu-item-danger">{{ t('auth.logout') }}</button>
+          </form>
+        </div>
+      </details>
+    </div>
+    {% endif %}
+  </header>
+  <div class="app-body">
+    {% if user %}
+    <aside class="side" aria-label="{{ t('nav.sidebar') }}">
+      {% include "_sidebar.html" %}
+    </aside>
+    {% endif %}
+    <div class="main">
+      <div class="view">
+        <main class="shell wrap">
+          {% if message %}<div class="toast">{{ message }}</div>{% endif %}
+          {% if error %}<div class="toast toast-error">{{ error }}</div>{% endif %}
+          {% block content %}{% endblock %}
+        </main>
+      </div>
+    </div>
+  </div>
+  {% if user and chat_agent_enabled %}
+    {% include "_chat_widget.html" %}
+  {% endif %}
+  <script src="{{ url_prefix }}/static/js/row-link.js" defer></script>
+</body>
+</html>

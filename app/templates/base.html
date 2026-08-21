@@ -29,6 +29,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Barry CO Demo{% endblock %}</title>
+  {% block head_extra %}{% endblock %}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -259,21 +260,31 @@
       <a class="side-a {{ 'on' if nav_active == 'bcct' }}" href="/clients/{{ nav_client.id }}/bcct">
         BCCT{% if nav_counts.get('bcct') %}<span class="ct">{{ nav_counts['bcct'] }}</span>{% endif %}
       </a>
+      {# Source-data management. These screens came from Data Hub and still live
+         under /hub, but they render in this shell, so from the operator's side
+         they are simply the next entry in the same sidebar. #}
+      <a class="side-a {{ 'on' if nav_active == 'source-manage' }}" href="/hub/clients/{{ nav_client.id }}/bcct">Quản lý dữ liệu nguồn</a>
       <a class="side-a {{ 'on' if nav_active == 'co-stock' }}" href="/clients/{{ nav_client.id }}/co-stock">
         Tồn CO{% if nav_counts.get('co_stock') %}<span class="ct">{{ nav_counts['co_stock'] }}</span>{% endif %}
       </a>
 
-      <p class="side-grp">Cấu hình công ty</p>
-      <a class="side-a {{ 'on' if nav_active == 'config' }}" href="/clients/{{ nav_client.id }}/config">Cấu hình công ty</a>
-      <a class="side-a {{ 'on' if nav_active == 'cost-allocation' }}" href="/clients/{{ nav_client.id }}/cost-allocation">Hệ số phân bổ</a>
-      <a class="side-a {{ 'on' if nav_active == 'suppliers' }}" href="/clients/{{ nav_client.id }}/suppliers">NCC / Phụ lục X</a>
+      {% set cfg_active = nav_active in ['config', 'cost-allocation', 'suppliers'] %}
+      <details class="side-fold"{% if cfg_active %} open{% endif %}>
+        <summary class="side-grp side-grp-fold">Cấu hình công ty</summary>
+        <a class="side-a {{ 'on' if nav_active == 'config' }}" href="/clients/{{ nav_client.id }}/config">Cấu hình công ty</a>
+        <a class="side-a {{ 'on' if nav_active == 'cost-allocation' }}" href="/clients/{{ nav_client.id }}/cost-allocation">Hệ số phân bổ</a>
+        <a class="side-a {{ 'on' if nav_active == 'suppliers' }}" href="/clients/{{ nav_client.id }}/suppliers">NCC / Phụ lục X</a>
+      </details>
       {% endif %}
 
-      <p class="side-grp">Hệ thống</p>
-      <a class="side-a {{ 'on' if nav_path in ['/', '/clients'] }}" href="/clients">Danh sách công ty</a>
-      <a class="side-a {{ 'on' if nav_path.startswith('/customs-exchange-rates') }}" href="/customs-exchange-rates">Tỷ giá hải quan</a>
-      <a class="side-a {{ 'on' if nav_path.startswith('/settings') }}" href="/settings">Cài đặt</a>
-      <a class="side-a {{ 'on' if nav_path.startswith('/whats-new') }}" href="/whats-new">Có gì mới</a>
+      {% set sys_active = nav_path in ['/', '/clients'] or nav_path.startswith('/customs-exchange-rates') or nav_path.startswith('/settings') or nav_path.startswith('/whats-new') %}
+      <details class="side-fold"{% if sys_active %} open{% endif %}>
+        <summary class="side-grp side-grp-fold">Hệ thống</summary>
+        <a class="side-a {{ 'on' if nav_path in ['/', '/clients'] }}" href="/clients">Danh sách công ty</a>
+        <a class="side-a {{ 'on' if nav_path.startswith('/customs-exchange-rates') }}" href="/customs-exchange-rates">Tỷ giá hải quan</a>
+        <a class="side-a {{ 'on' if nav_path.startswith('/settings') }}" href="/settings">Cài đặt</a>
+        <a class="side-a {{ 'on' if nav_path.startswith('/whats-new') }}" href="/whats-new">Có gì mới</a>
+      </details>
 
       <div class="side-foot">
         <a href="/whats-new">Barry CO v{{ app_version.version }}</a>

@@ -178,13 +178,22 @@
    A zeroed strip on a not-yet-refreshed client would read as "hết tồn" when it
    actually means "chưa pull snapshot" (the Tồn CO page prompts the refresh). #}
 {% if _ss and _ss.lot_count and _ss.lot_count > 0 %}
-<section class="zone co-stock-overview"
+{# Demoted to a fold. This page's job is "which dossiers need me"; the stock
+   position is reference the operator consults occasionally, and at full size it
+   pushed the dossier list — often a single row — below the fold. Summary stays
+   visible on the fold's own line, so nothing is hidden, only ranked. #}
+<details class="zone co-stock-overview co-stock-fold"
          data-co-stock-overview
          data-co-stock-value="{{ _ss.total_value_vnd }}"
          data-co-stock-qty="{{ _ss.total_qty }}"
          data-co-stock-codes="{{ _ss.code_count }}"
          data-co-stock-lots="{{ _ss.lot_count }}"
          aria-label="Tổng quan tồn CO">
+  <summary class="co-stock-fold-summary">
+    <span class="eyebrow">Tồn CO để kiểm soát</span>
+    <strong class="num" data-co-stock-value-big-inline>—</strong>
+    <span class="meta"><span data-co-stock-codes-inline>—</span> mã · <span data-co-stock-lots-inline>—</span> dòng lot</span>
+  </summary>
   <div class="co-stock-overview-head">
     <div>
       <span class="eyebrow">Tồn CO để kiểm soát</span>
@@ -219,7 +228,7 @@
     <button type="button" class="btn-secondary" data-co-stock-clear hidden>Bỏ lọc</button>
     <span class="meta" data-co-stock-range-note></span>
   </div>
-</section>
+</details>
 <script>
 (() => {
   const root = document.querySelector("[data-co-stock-overview]");
@@ -255,6 +264,14 @@
     qtyEl.textContent = fmtQty(data.total_qty);
     codesEl.textContent = fmtCount(data.code_count);
     lotsEl.textContent = fmtCount(data.lot_count);
+    // Mirror onto the fold's summary line so the headline figures stay readable
+    // with the panel closed — collapsing must rank the panel down, not hide it.
+    const inlineBig = root.querySelector("[data-co-stock-value-big-inline]");
+    const inlineCodes = root.querySelector("[data-co-stock-codes-inline]");
+    const inlineLots = root.querySelector("[data-co-stock-lots-inline]");
+    if (inlineBig) inlineBig.textContent = fmtBig(data.total_value_vnd);
+    if (inlineCodes) inlineCodes.textContent = fmtCount(data.code_count);
+    if (inlineLots) inlineLots.textContent = fmtCount(data.lot_count);
     const filtered = !!(data.date_from || data.date_to);
     clearBtn.hidden = !filtered;
     if (filtered) {
@@ -515,7 +532,9 @@
     <div>
       <span class="eyebrow">Hồ sơ theo lô hàng</span>
       <h2>{{ case.case_code }}</h2>
-      <p class="meta">{{ case.title }} · {{ case.destination_market }} · {{ case.shipment_reference_label }} · B/L: {{ case.shipment.bill_of_lading_no or 'n/a' }}</p>
+      {# Shipment reference lives on the facts strip below; printing it here too
+         made the same invoice number appear twice within 150px. #}
+      <p class="meta">{{ case.title }} · {{ case.destination_market }} · B/L: {{ case.shipment.bill_of_lading_no or 'n/a' }}</p>
     </div>
     <button type="button" class="btn-secondary" data-picker-open
             data-picker-url="/clients/{{ client.id }}/co-case-picker?current={{ case.persisted_case_id }}"
@@ -877,11 +896,19 @@
 <div class="origin-wizard-bar" data-origin-wizard hidden></div>
 
 <section class="origin-review" data-origin-review aria-label="Tổng quan & cấu hình bảng kê">
+  {% set _cfg_texts = [] %}
+  {% for _p in case.products %}
+    {% set _p_thr = _p.origin_sheet_effective_lvc_threshold or _p.origin_sheet_effective_rvc_threshold %}
+    {% if _cfg_texts.append((_p.origin_sheet_effective_form_code or '—') ~ ' · ' ~ (_p.origin_sheet_effective_criteria_text or '—') ~ (' · ' ~ _p_thr|string ~ '%' if _p_thr else '')) %}{% endif %}
+  {% endfor %}
+  {% set _cfg_uniform = (_cfg_texts | unique | list | length) == 1 %}
   <div class="origin-page-bar">
     <div class="origin-page-strip">
       <span><em>Tham chiếu</em> <strong class="mono">{{ case.shipment_reference_label }}</strong></span>
       <span><em>{{ 'Demo' if origin_demo_active else 'BCCT' }}</em> <strong>{{ case.products|length ~ ' TP mẫu' if origin_demo_active else invoice_matches|length ~ ' dòng' }}</strong></span>
-      <span><em>Form</em> <strong>{{ recommended_form_lane.display_name or case.co_form_type }}</strong></span>
+      {# When every sheet shares one effective configuration it is a fact about the
+         lô hàng, so it belongs on this line rather than repeated per row. #}
+      <span><em>{{ 'Cấu hình' if _cfg_uniform else 'Form' }}</em> <strong>{{ _cfg_texts[0] if _cfg_uniform else (recommended_form_lane.display_name or case.co_form_type) }}</strong></span>
       <span><em>BOM</em> <strong>{{ origin_demo_material_count ~ ' NVL mẫu' if origin_demo_active else case.bom_snapshot.composition|length ~ ' TP' }}</strong></span>
       <span><em>Trạng thái</em> <strong>{{ case.origin_snapshot.readiness_label or 'Chưa tính' }}</strong></span>
       {% if origin_demo_active %}<span class="origin-page-demo-badge" title="Hồ sơ chưa có BCCT/BOM thật — đang nạp 2 TP mẫu để minh họa.">Demo</span>{% endif %}
@@ -893,40 +920,12 @@
     {% set _crit = (product.origin_sheet_effective_criteria_text or product.documented_result or '')|upper %}
     {% if 'RVC' in _crit or 'LVC' in _crit %}{% set _cost_ns.has = true %}{% endif %}
   {% endfor %}
+  {# Three actions carry the daily work — tính, chốt, xuất. The other five are
+     occasional (sheet order, cột (9) convention, cost coefficients, the
+     step-by-step wizard, the shortage roll-up) and were charging a permanent
+     two-row toolbar for it. They fold. #}
   <div class="origin-review-toolbar">
-    {% if case.products|length > 1 %}
-    <button type="button" class="btn-secondary" data-origin-reorder-open>Đổi thứ tự sheet</button>
-    <span class="origin-sheet-tabs-hint">Thứ tự quyết định sheet nào trừ tồn trước.</span>
-    {% endif %}
-    <label class="origin-column9-mode" data-origin-column9-mode
-           title="Quy ước cột (9) Nước xuất xứ cho HỒ SƠ này (override mặc định của công ty). Đổi quy ước: sheet đã tính lệch quy ước → chuyển 'Cần tính lại'; sheet đã chốt GIỮ NGUYÊN (chỉ gắn nhãn lệch).">
-      <span class="meta">Cột (9)</span>
-      <select data-origin-column9-mode-select
-              data-column9-mode-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/column9-mode">
-        <option value="" {% if not case.bang_ke_column9_mode_override %}selected{% endif %}>⤷ mặc định công ty ({{ client_column9_mode_default or 'country' }})</option>
-        <option value="country" {% if case.bang_ke_column9_mode_override == 'country' %}selected{% endif %}>country — tên nước</option>
-        <option value="qualification_label" {% if case.bang_ke_column9_mode_override == 'qualification_label' %}selected{% endif %}>qualification_label — Việt Nam/Không xuất xứ</option>
-      </select>
-    </label>
-    <span class="origin-workbar-sequence-dirty" data-origin-sequence-dirty hidden>Thứ tự sheet đã đổi — cần tính lại</span>
-    <span class="origin-review-toolbar-spacer"></span>
-    {% if _cost_ns.has %}
-    <button type="button" class="btn-secondary" data-bulk-cost-apply
-            data-bulk-cost-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-apply-cost"
-            data-cost-config-url="/clients/{{ client.id }}/cost-allocation"
-            title="Áp hệ số chi phí (Mode A theo Mã SP → Mode B mặc định) × FOB cho mọi SP RVC/LVC. Chỉ điền SP đang trống.">
-      Áp hệ số CP (tất cả SP)
-    </button>
-    {% endif %}
     {% if case.products %}
-    <button type="button" class="btn-secondary" data-origin-wizard-start
-            title="Xử lý từng bảng kê lần lượt theo thứ tự: tính → xem lại → chốt, cho tới hết. An toàn hơn 'Chốt tất cả' vì dừng cho bạn duyệt mỗi bước.">
-      Xử lý tuần tự
-    </button>
-    <button type="button" class="btn-secondary" data-origin-aggregate-open
-            title="Mở sheet Tổng hợp NVL thiếu tồn — liệt kê NVL thiếu trên cả lô, thay NVL (thay phần thiếu / thay hết), thay xong tính lại ngay.">
-      ▦ Tổng hợp NVL <span class="rs-tab-badge" data-agg-badge hidden></span>
-    </button>
     <button type="button" class="btn-secondary" data-run-stock-all
             data-run-stock-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/calculate-all"
             data-bulk-substitute-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-substitute"
@@ -941,6 +940,45 @@
     </button>
     {% endif %}
     <button type="submit" form="origin-export-bang-ke" data-origin-export-action class="btn-secondary">Xuất bảng kê HQ</button>
+    <span class="origin-workbar-sequence-dirty" data-origin-sequence-dirty hidden>Thứ tự sheet đã đổi — cần tính lại</span>
+    <span class="origin-review-toolbar-spacer"></span>
+    <details class="origin-toolbar-more">
+      <summary class="origin-toolbar-more-summary">Thêm thao tác</summary>
+      <div class="origin-toolbar-more-body">
+        {% if case.products|length > 1 %}
+    <button type="button" class="btn-secondary" data-origin-reorder-open>Đổi thứ tự sheet</button>
+    <span class="origin-sheet-tabs-hint">Thứ tự quyết định sheet nào trừ tồn trước.</span>
+    {% endif %}
+        <label class="origin-column9-mode" data-origin-column9-mode
+           title="Quy ước cột (9) Nước xuất xứ cho HỒ SƠ này (override mặc định của công ty). Đổi quy ước: sheet đã tính lệch quy ước → chuyển 'Cần tính lại'; sheet đã chốt GIỮ NGUYÊN (chỉ gắn nhãn lệch).">
+      <span class="meta">Cột (9)</span>
+      <select data-origin-column9-mode-select
+              data-column9-mode-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/column9-mode">
+        <option value="" {% if not case.bang_ke_column9_mode_override %}selected{% endif %}>⤷ mặc định công ty ({{ client_column9_mode_default or 'country' }})</option>
+        <option value="country" {% if case.bang_ke_column9_mode_override == 'country' %}selected{% endif %}>country — tên nước</option>
+        <option value="qualification_label" {% if case.bang_ke_column9_mode_override == 'qualification_label' %}selected{% endif %}>qualification_label — Việt Nam/Không xuất xứ</option>
+      </select>
+    </label>
+        {% if _cost_ns.has %}
+    <button type="button" class="btn-secondary" data-bulk-cost-apply
+            data-bulk-cost-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-apply-cost"
+            data-cost-config-url="/clients/{{ client.id }}/cost-allocation"
+            title="Áp hệ số chi phí (Mode A theo Mã SP → Mode B mặc định) × FOB cho mọi SP RVC/LVC. Chỉ điền SP đang trống.">
+      Áp hệ số CP (tất cả SP)
+    </button>
+    {% endif %}
+        {% if case.products %}
+        <button type="button" class="btn-secondary" data-origin-wizard-start
+            title="Xử lý từng bảng kê lần lượt theo thứ tự: tính → xem lại → chốt, cho tới hết. An toàn hơn 'Chốt tất cả' vì dừng cho bạn duyệt mỗi bước.">
+      Xử lý tuần tự
+    </button>
+        <button type="button" class="btn-secondary" data-origin-aggregate-open
+            title="Mở sheet Tổng hợp NVL thiếu tồn — liệt kê NVL thiếu trên cả lô, thay NVL (thay phần thiếu / thay hết), thay xong tính lại ngay.">
+      ▦ Tổng hợp NVL <span class="rs-tab-badge" data-agg-badge hidden></span>
+    </button>
+        {% endif %}
+      </div>
+    </details>
   </div>
   {% if _cost_ns.has %}
   <div class="bulk-cost-summary" data-bulk-cost-summary hidden></div>
@@ -1043,13 +1081,14 @@
       </div>
     </div>
   </div>
-  <div class="origin-review-table">
+  {% set _any_override = case.products | selectattr('origin_sheet_criteria_source', 'equalto', 'sheet') | list | length %}
+  <div class="origin-review-table{{ ' orr-config-empty' if _cfg_uniform and not _any_override else '' }}">
     <div class="origin-review-row origin-review-head" aria-hidden="true">
       <span class="orr-step">Bước</span>
       <span class="orr-code">Sản phẩm</span>
       <span class="orr-status">Trạng thái</span>
       <span class="orr-bom">BOM</span>
-      <span class="orr-config">Cấu hình hiệu lực</span>
+      <span class="orr-config">{{ 'Khác với cả lô' if _cfg_uniform else 'Cấu hình hiệu lực' }}</span>
       <span class="orr-metrics">Số liệu</span>
       <span class="orr-drill"></span>
     </div>
@@ -1076,16 +1115,17 @@
         {% if product.origin_sheet_material_diff_total %}<span class="origin-bom-diff-replaced">↔{{ product.origin_sheet_material_diff_total }}</span>{% endif %}
       </span>
       <span class="orr-config">
-        {{ product.origin_sheet_effective_form_code or '—' }} · {{ product.origin_sheet_effective_criteria_text or '—' }}{% if _eff_thr %} · {{ _eff_thr }}%{% endif %}
+        {% if not _cfg_uniform %}{{ product.origin_sheet_effective_form_code or '—' }} · {{ product.origin_sheet_effective_criteria_text or '—' }}{% if _eff_thr %} · {{ _eff_thr }}%{% endif %}{% endif %}
         {% if _has_override %}<span class="orr-override">override</span>{% endif %}
         {# Keyed on criteria_source, not on the sheet override alone: a criterion chosen
            for the whole lô hàng IS a person's choice, and the lock gate treats it as one.
            Reading only the override made every row say "khuyến nghị" right after the
            operator chose one for the lô, contradicting the bar above and the sheet's own chip. #}
         {% set _crit_src = product.origin_sheet_criteria_source %}
-        {% if _crit_src == 'case' %}<span class="orr-criteria-src" title="Tiêu chí theo lựa chọn cho cả lô hàng — mở bảng kê để đặt riêng.">tiêu chí: theo lô hàng</span>
-        {% elif _crit_src == 'sheet' %}<span class="orr-criteria-src" title="Tiêu chí đặt riêng cho bảng kê này.">tiêu chí: riêng sheet này</span>
-        {% else %}<span class="orr-criteria-unset" title="Chưa chọn tiêu chí — đang dùng khuyến nghị của hệ thống. Chọn cho cả lô ở thanh trên, hoặc mở bảng kê → chip Tiêu chí.">tiêu chí: khuyến nghị</span>{% endif %}
+        {# "khuyến nghị" is the state the banner above already announces for the whole
+           lô, so repeating it per row said nothing. Only a sheet that carries its own
+           criterion is worth a chip here. #}
+        {% if _crit_src == 'sheet' %}<span class="orr-criteria-src" title="Tiêu chí đặt riêng cho bảng kê này.">tiêu chí riêng</span>{% endif %}
       </span>
       <span class="orr-metrics">
         <span class="origin-metric-chip"><em>HS</em> <strong class="mono">{{ product.finished_hs }}</strong></span>

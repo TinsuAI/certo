@@ -94,6 +94,10 @@ def template_context(request: Request) -> dict:
         # explicit context dict, so any default we set would clobber the
         # per-route value. Routes that don't set these get Jinja's
         # undefined treated as falsy in {% if %}.
+        # Last, so shell-owned keys win: rendering inside CO's chrome means
+        # CO's theme cookie and CO's version belong in CO's header and footer,
+        # not Data Hub's. Standalone this returns {} and nothing is overridden.
+        **_co_shell_context(request),
     }
 
 
@@ -137,9 +141,71 @@ async def lifespan(app: FastAPI):
     close_pool()
 
 
+
+def _co_shell_context(request: Request) -> dict:
+    """Context CO's base.html expects, derived from the Data Hub request.
+
+    Returns {} when CO is not importable (Data Hub running standalone), so its
+    own base.html keeps working unchanged.
+    """
+    # Only when actually mounted inside CO. Importability is not the test —
+    # in the merged repo CO is always importable, which would have swapped the
+    # shell during Data Hub's own standalone test run and broken its nav
+    # assertions. Starlette sets root_path only for a mounted sub-app.
+    if not (request.scope.get("root_path") or ""):
+        return {}
+    try:
+        from app.web.templating import asset_url, theme_context
+    except Exception:  # noqa: BLE001
+        return {}
+    ctx = dict(theme_context(request))
+    ctx["asset_url"] = asset_url
+    ctx["co_shell_available"] = True
+    path = request.scope.get("path", "") or ""
+    prefix = request.scope.get("root_path", "") or ""
+    ctx["nav_path"] = prefix + path
+    # Which CO sidebar entry to light up for this source-data screen.
+    section = "catalog"
+    for needle, active in (
+        ("/bcct", "bcct"),
+        ("/bom", "bom"),
+        ("/nxt", "co-stock"),
+        ("/inventory-snapshots", "co-stock"),
+    ):
+        if needle in path:
+            section = active
+            break
+    ctx["nav_active"] = section
+    ctx.setdefault("nav_counts", {})
+    client_id = request.path_params.get("client_id") if hasattr(request, "path_params") else None
+    if client_id:
+        try:
+            from hub.app.routes.clients import get_client
+
+            row = get_client(client_id) or {}
+            ctx["nav_client"] = {
+                "id": row.get("client_id") or client_id,
+                "name": row.get("name") or client_id,
+            }
+        except Exception:  # noqa: BLE001
+            ctx["nav_client"] = {"id": client_id, "name": client_id}
+    return ctx
+
 app = FastAPI(title="Data Hub", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+# Source-data management is part of CO's workspace, not a separate product, so
+# these screens render inside CO's shell. Exposing CO's template directory under
+# a `co/` prefix lets hub/app/templates/base.html extend it; every screen that
+# already extends "base.html" is re-shelled without being touched.
+_CO_TEMPLATES = ROOT.parent.parent / "app" / "templates"
 templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[template_context])
+if _CO_TEMPLATES.is_dir():
+    import jinja2
+
+    templates.env.loader = jinja2.ChoiceLoader([
+        jinja2.FileSystemLoader(str(ROOT / "templates")),
+        jinja2.PrefixLoader({"co": jinja2.FileSystemLoader(str(_CO_TEMPLATES))}),
+    ])
 
 app.state.templates = templates
 
