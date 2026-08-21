@@ -1,0 +1,7 @@
+{
+  "input_parent_products": 15,
+  "export_products": 8,
+  "btp_products": 7,
+  "input_edges": 49,
+  "expected_flatten_status": "flattened"
+}

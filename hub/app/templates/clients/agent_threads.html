@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ t('agent.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('agent.title') }}</h2>
+      <p class="meta">{{ t('agent.subtitle') }}</p>
+    </div>
+  </div>
+
+  <form method="post" action="/clients/{{ client.client_id }}/agent/threads"
+        class="stack-form" style="max-width: 600px;">
+    <input type="text" name="title" placeholder="{{ t('agent.thread_title_placeholder') }}" maxlength="120">
+    <button type="submit" class="btn-primary">{{ t('agent.new_thread') }}</button>
+  </form>
+
+  {% if threads %}
+  <h3 style="margin-top: 1.5rem;">{{ t('agent.recent_threads') }}</h3>
+  <ul class="agent-thread-list">
+    {% for th in threads %}
+    <li class="agent-thread-card">
+      <a href="/clients/{{ client.client_id }}/agent/{{ th.thread_id }}" class="agent-thread-link">
+        <strong>{{ th.title or '(không tên)' }}</strong>
+        <div class="meta">
+          {{ th.message_count }} {{ t('agent.messages') }} ·
+          {{ t('common.updated') }} {{ th.updated_at.strftime('%Y-%m-%d %H:%M') }}
+        </div>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="meta" style="margin-top: 1rem;">{{ t('agent.no_threads') }}</p>
+  {% endif %}
+</section>
+
+{% endblock %}

@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% block title %}Parser rules · {{ client.name }}{% endblock %}
+{% block content %}
+{# Trang này tự dựng thanh tiêu đề riêng (có tiêu đề cụ thể hơn), nên không
+   include "_client_nav.html" nữa — nếu include sẽ ra hai thanh tiêu đề chồng
+   nhau. Điều hướng khu làm việc nằm ở thanh bên (_sidebar.html). #}
+
+<section class="page-bar">
+  <div>
+    <h1>Parser rules</h1>
+    <span class="page-tagline">
+      Per-client regex rules editable here. Used at runtime to derive
+      <code>internal_code</code> + extract material_identity candidates
+      from BCCT row fields. ReDoS-safe via re2.
+    </span>
+  </div>
+</section>
+
+{% if error %}
+<div class="callout callout-error"><strong>Error:</strong> <code>{{ error }}</code></div>
+{% endif %}
+{% if flash %}
+<div class="callout callout-success">{{ flash }}</div>
+{% endif %}
+
+<section class="zone">
+  <div class="zone-head"><h2>Existing rules</h2></div>
+  {% if not rules %}
+  <p class="meta">No rules configured for this client yet. Identity-mode
+  clients don't need rules — `internal_code = customs_code` is the
+  short-circuit.</p>
+  {% else %}
+  <table class="data-table dense">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Output</th>
+        <th>Priority</th>
+        <th>Source</th>
+        <th>Pattern</th>
+        <th>Action</th>
+        <th>On no-match</th>
+        <th>Group</th>
+        <th>Notes</th>
+        <th>State</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rules %}
+      <tr {% if not r.enabled %}class="row-muted"{% endif %}>
+        <td class="mono">{{ r.rule_id }}</td>
+        <td class="mono">{{ r.output_field }}</td>
+        <td class="mono">{{ r.priority }}</td>
+        <td class="mono">{{ r.source_field }}</td>
+        <td><code>{{ r.pattern }}</code></td>
+        <td class="mono">{{ r.match_action }}</td>
+        <td class="mono">{{ r.no_match_action }}</td>
+        <td class="mono">{{ r.match_group }}</td>
+        <td>{{ r.notes or '' }}</td>
+        <td>
+          {% if r.enabled %}<span class="badge badge-success">enabled</span>
+          {% else %}<span class="badge badge-warning">disabled</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.enabled %}
+          <a class="btn-secondary btn-xs"
+             href="/clients/{{ client.client_id }}/parser-rules/{{ r.rule_id }}/edit">
+            Edit
+          </a>
+          <form method="post"
+                action="/clients/{{ client.client_id }}/parser-rules/{{ r.rule_id }}/disable"
+                style="display:inline;">
+            <button type="submit" class="btn-secondary btn-xs"
+                    onclick="return confirm('Disable rule {{ r.rule_id }}? (soft-disable; not deleted)');">
+              Disable
+            </button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section class="zone">
+  <div class="zone-head"><h2>Add rule</h2></div>
+  <form method="post" action="/clients/{{ client.client_id }}/parser-rules/create"
+        class="settings-form">
+    <div class="settings-grid">
+      <label class="field">
+        <span class="field-label">output_field <em class="field-required">required</em></span>
+        <input type="text" name="output_field" required value="internal_code"
+               placeholder="internal_code">
+      </label>
+      <label class="field">
+        <span class="field-label">priority <em class="field-required">required</em></span>
+        <input type="number" name="priority" required value="100" min="1">
+      </label>
+      <label class="field">
+        <span class="field-label">source_field</span>
+        <input type="text" name="source_field" value="goods_name">
+      </label>
+      <label class="field">
+        <span class="field-label">match_group</span>
+        <input type="number" name="match_group" value="1" min="0">
+      </label>
+      <label class="field">
+        <span class="field-label">match_action</span>
+        <select name="match_action">
+          <option value="capture">capture</option>
+          <option value="reject">reject</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">no_match_action</span>
+        <select name="no_match_action">
+          <option value="next_rule">next_rule</option>
+          <option value="return_null">return_null</option>
+        </select>
+      </label>
+    </div>
+    <label class="field">
+      <span class="field-label">pattern (re2 syntax) <em class="field-required">required</em></span>
+      <input type="text" name="pattern" required
+             placeholder="\(([\w.\-]+)\)" class="mono">
+    </label>
+    <label class="field">
+      <span class="field-label">notes</span>
+      <input type="text" name="notes" placeholder="Optional — used as evidence.match_rule label">
+    </label>
+    <footer class="commit-bar commit-bar-standalone">
+      <div class="commit-actions">
+        <button type="submit" class="btn-primary">Add rule</button>
+      </div>
+    </footer>
+  </form>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <h2>Test panel</h2>
+    <p class="meta">Read-only — never persists. Three modes:
+      <strong>single sample</strong> (paste one value),
+      <strong>recent rows</strong> (last 50 BCCT rows for this client),
+      <strong>coverage</strong> (resolved/null counts over last 1k rows).
+    </p>
+  </div>
+
+  <form method="post" action="/clients/{{ client.client_id }}/parser-rules/test"
+        class="settings-form">
+    <div class="settings-grid">
+      <label class="field">
+        <span class="field-label">output_field</span>
+        <input type="text" name="output_field"
+               value="{{ test_result.output_field if test_result else 'internal_code' }}">
+      </label>
+    </div>
+    <label class="field">
+      <span class="field-label">sample_input (single-sample mode only)</span>
+      <input type="text" name="sample_input" class="mono"
+             value="{{ test_result.sample_input if test_result else '' }}"
+             placeholder="BIENTAN.17#&Hàng (PV01.0117500)#&VN">
+    </label>
+    <footer class="commit-bar commit-bar-standalone">
+      <span class="commit-note">Read-only — không ghi gì vào Hub.</span>
+      <div class="commit-actions">
+        <button type="submit" name="mode" value="single" class="btn-secondary btn-sm">Run on sample</button>
+        <button type="submit" name="mode" value="recent" class="btn-secondary btn-sm">Run on recent 50 rows</button>
+        <button type="submit" name="mode" value="coverage" class="btn-secondary btn-sm">Coverage (last 1k)</button>
+      </div>
+    </footer>
+  </form>
+
+  {% if test_result and test_result.mode == 'single' %}
+  <div class="zone-head" style="margin-top: 1.5rem;">
+    <h3>Single-sample result</h3>
+  </div>
+  <p>
+    <strong>Final output:</strong>
+    {% if test_result.final_output is none %}
+    <span class="badge badge-warning">None</span>
+    {% else %}
+    <code>{{ test_result.final_output }}</code>
+    {% endif %}
+  </p>
+  <table class="data-table dense">
+    <thead>
+      <tr>
+        <th>Rule</th>
+        <th>Priority</th>
+        <th>Matched?</th>
+        <th>Captured</th>
+        <th>Matched text</th>
+        <th>Action taken</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in test_result.trace %}
+      <tr>
+        <td class="mono">#{{ t.rule_id }}</td>
+        <td class="mono">{{ t.priority }}</td>
+        <td>
+          {% if t.matched %}<span class="badge badge-success">yes</span>
+          {% else %}<span class="badge">no</span>{% endif %}
+        </td>
+        <td>{% if t.captured is not none %}<code>{{ t.captured }}</code>{% endif %}</td>
+        <td>{% if t.matched_text %}<code>{{ t.matched_text }}</code>{% endif %}</td>
+        <td class="mono">
+          {% if t.matched %}{{ t.match_action }}{% else %}{{ t.no_match_action }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if test_result and test_result.mode == 'recent' %}
+  <div class="zone-head" style="margin-top: 1.5rem;">
+    <h3>Recent 50 rows · source field <code>{{ test_result.recent_source_field }}</code></h3>
+  </div>
+  {% if test_result.recent %}
+  <table class="data-table dense">
+    <thead>
+      <tr>
+        <th>Decl / line</th>
+        <th>Customs</th>
+        <th>{{ test_result.recent_source_field }} (truncated)</th>
+        <th>Output</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in test_result.recent %}
+      <tr>
+        <td class="mono">{{ r.declaration_no or '' }} / {{ r.line_no }}</td>
+        <td class="mono">{{ r.customs_code or '' }}</td>
+        <td><code>{{ r.source_value }}</code></td>
+        <td>
+          {% if r.output is none %}
+          <span class="badge badge-warning">None</span>
+          {% else %}<code>{{ r.output }}</code>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">No rows for this client yet.</p>
+  {% endif %}
+  {% endif %}
+
+  {% if test_result and test_result.mode == 'coverage' %}
+  <div class="zone-head" style="margin-top: 1.5rem;">
+    <h3>Coverage over last 1k rows · source field <code>{{ test_result.coverage.source_field }}</code></h3>
+  </div>
+  <p>
+    <strong>Total:</strong> {{ test_result.coverage.total }} rows ·
+    <strong>Resolved:</strong>
+    <span class="badge badge-success">{{ test_result.coverage.resolved }}</span> ·
+    <strong>Null:</strong>
+    <span class="badge badge-warning">{{ test_result.coverage.null }}</span>
+  </p>
+  {% if test_result.coverage.sample_resolved %}
+  <p class="meta">Sample of resolved outputs (first 10):</p>
+  <ul class="mono">
+    {% for s in test_result.coverage.sample_resolved %}
+    <li><code>{{ s }}</code></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% endif %}
+</section>
+
+{% endblock %}

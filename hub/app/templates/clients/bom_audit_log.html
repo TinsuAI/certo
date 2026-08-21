@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ t('bom.audit_log.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{# Trang này tự dựng thanh tiêu đề riêng (có tiêu đề cụ thể hơn), nên không
+   include "_client_nav.html" nữa — nếu include sẽ ra hai thanh tiêu đề chồng
+   nhau. Điều hướng khu làm việc nằm ở thanh bên (_sidebar.html). #}
+
+<section class="page-bar">
+  <h1>{{ t('bom.audit_log.title') }} ({{ total }})</h1>
+  <span class="page-tagline">{{ t('bom.audit_log.subtitle') }}</span>
+  <div class="page-actions">
+    <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/needs-action">
+      ← {{ t('bom.needs_action.title') }}
+    </a>
+  </div>
+</section>
+
+{% if not events %}
+<div class="zone mini-panel">
+  <p>Chưa có sự kiện nào.</p>
+</div>
+{% else %}
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>{{ t('bom.audit_log.col.when') }}</th>
+      <th>{{ t('bom.audit_log.col.what') }}</th>
+      <th>{{ t('bom.audit_log.col.affects') }}</th>
+      <th>{{ t('bom.audit_log.col.state') }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in events %}
+    <tr>
+      <td>
+        <small>{{ e.latest_at.strftime('%Y-%m-%d %H:%M') }}</small>
+      </td>
+      <td>
+        {% set cause_key = 'bom.cause.' ~ e.cause_dim %}
+        {% set cause_label = t(cause_key) %}
+        <strong>{{ cause_label if cause_label != cause_key else e.cause_dim }}</strong>
+        {% if e.related_code %}
+          <br><small>
+            <a href="/clients/{{ client.client_id }}/catalog/{{ e.related_code }}/detail">
+              <code>{{ e.related_code }}</code></a>
+            {% if e.related_name and e.related_name != e.related_code %}
+              · {{ e.related_name|truncate(60) }}
+            {% endif %}
+          </small>
+        {% endif %}
+      </td>
+      <td>{{ e.n_arts }} BOM</td>
+      <td>
+        {% if e.state == 'clean' %}
+          <span class="badge badge-success">{{ t('bom.state.clean') }}</span>
+        {% elif e.state == 'needs_refresh' %}
+          <span class="badge badge-info">{{ t('bom.state.needs_refresh') }}</span>
+        {% elif e.state == 'needs_input' %}
+          <span class="badge badge-warning">{{ t('bom.state.needs_input') }}</span>
+        {% else %}
+          <span class="badge">{{ e.state }}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if n_pages > 1 %}
+<nav style="margin-top:1em; text-align:center;">
+  {% set base = '/clients/' ~ client.client_id ~ '/bom/audit-log' %}
+  {% if page > 1 %}
+    <a class="btn-ghost" href="{{ base }}?page={{ page - 1 }}">← Trước</a>
+  {% endif %}
+  <span style="margin: 0 1em;">Trang {{ page }} / {{ n_pages }}</span>
+  {% if page < n_pages %}
+    <a class="btn-ghost" href="{{ base }}?page={{ page + 1 }}">Sau →</a>
+  {% endif %}
+</nav>
+{% endif %}
+
+{% endif %}
+
+{% endblock %}

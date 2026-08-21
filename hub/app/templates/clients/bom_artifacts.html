@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "clients/_bom_macros.html" import shape_badge %}
+{% block title %}BOM {{ product_code }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('bom.versions_title') }} <span class="mono">{{ product_code }}</span></h2>
+      <p class="meta">{{ artifacts|length }} · {{ t('bom.versions_immutable') }}</p>
+    </div>
+    <div style="display:flex;gap:.5rem">
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/{{ product_code }}/presets">presets →</a>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">{{ t('bom.versions_back') }}</a>
+    </div>
+  </div>
+
+  {% set ns_var = namespace(any_non_default=false) %}
+  {% for v in artifacts %}
+    {% if v.bom_variant_id and v.bom_variant_id != 'default' %}
+      {% set ns_var.any_non_default = true %}
+    {% endif %}
+  {% endfor %}
+
+  <table class="dh-table">
+    <thead><tr>
+      <th>#</th>
+      {% if ns_var.any_non_default %}<th>{{ t('bom.col.variant') }}</th>{% endif %}
+      <th>shape</th>
+      <th>{{ t('bom.col.actor') }}</th>
+      <th>{{ t('bom.col.intent') }}</th>
+      <th>source</th>
+      <th>{{ t('bom.col.parent') }}</th>
+      <th>{{ t('bom.col.rows') }}</th>
+      <th>{{ t('bom.col.hash') }}</th>
+      <th>{{ t('common.status') }}</th>
+      <th>{{ t('bom.col.published') }}</th>
+      <th></th>
+    </tr></thead>
+    <tbody>
+      {% for v in artifacts %}
+      <tr {% if v.tombstoned_at %}style="opacity: .55;"{% endif %}
+          {% if v.is_stale %}data-stale-row="{{ v.artifact_id }}"{% endif %}>
+        <td>
+          <span class="badge badge-info">#{{ v.artifact_no }}</span>
+          {% if v.is_stale %}
+          <span class="badge badge-warn" title="{{ t('bom.stale.tooltip') }}"
+                data-stale-badge="1">⚠ {{ t('bom.stale.badge') }}</span>
+          {% endif %}
+        </td>
+        {% if ns_var.any_non_default %}
+          <td class="mono">{% if v.bom_variant_id and v.bom_variant_id != 'default' %}{{ v.bom_variant_id }}{% endif %}</td>
+        {% endif %}
+        <td>{{ shape_badge(v.bom_shape) }}</td>
+        <td class="mono">{{ v.actor }}</td>
+        <td><span class="badge badge-info">{{ v.intent }}</span></td>
+        <td class="mono" style="font-size: .85em;">
+          {% set ctx = v.context or {} %}
+          {% if ctx.get('source_filename') %}{{ ctx.source_filename }}{% endif %}
+          {% if ctx.get('source_batch') %}<br/><span style="color:#666">{{ ctx.source_batch }}</span>{% endif %}
+          {% if not ctx.get('source_filename') and not ctx.get('source_batch') %}{{ v.source_channel or '—' }}{% endif %}
+        </td>
+        <td>
+          {% if v.parent_artifact_id and v.parent_artifact_no %}
+            <a href="/clients/{{ client.client_id }}/bom/artifact/{{ v.parent_artifact_id }}"
+               title="{{ v.parent_artifact_id }}"
+               style="text-decoration:none">
+              <span class="badge badge-info">#{{ v.parent_artifact_no }}</span>
+              {{ shape_badge(v.parent_shape) }}
+              {% if v.parent_variant_id and v.parent_variant_id != v.bom_variant_id and v.parent_variant_id != 'default' %}
+                <br/><span class="mono" style="font-size:.8em;color:#666">{{ v.parent_variant_id }}</span>
+              {% endif %}
+            </a>
+          {% elif v.parent_artifact_id %}
+            <span class="mono" style="color:#c00;font-size:.85em" title="{{ v.parent_artifact_id }}">(deleted)</span>
+          {% else %}—{% endif %}
+        </td>
+        <td>{{ v.row_count }}</td>
+        <td class="mono">{{ v.normalized_hash[:8] }}</td>
+        <td>{{ v.status }}{% if v.tombstoned_at %} · đã thay thế{% endif %}</td>
+        <td class="mono">{{ v.published_at.strftime('%Y-%m-%d %H:%M') if v.published_at else '' }}</td>
+        <td><a href="/clients/{{ client.client_id }}/bom/artifact/{{ v.artifact_id }}">{{ t('common.detail') }} →</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% from "_format.html" import format_number, format_money, format_date %}
+{% from "_sort.html" import sort_th %}
+{% block title %}{{ t('bcct.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+{% from "clients/_metric_dash.html" import metric_dash %}
+{{ metric_dash(dash_cards) }}
+{% include "clients/_staleness_bar.html" %}
+
+{% if upload_summary %}
+<div class="callout callout-success">
+  Đã ingest <strong>{{ upload_summary.ingested }}</strong> dòng
+  ({{ upload_summary.new }} mới
+  {%- if upload_summary.updated %} · {{ upload_summary.updated }} cập nhật{% endif -%}
+  {%- if upload_summary.deleted %} · {{ upload_summary.deleted }} đã xóa{% endif -%}
+  {%- if upload_summary.noop %} · {{ upload_summary.noop }} không đổi{% endif -%}
+  {%- if upload_summary.skipped %} · <span style="color: var(--warn)">{{ upload_summary.skipped }} bỏ qua (thiếu Ngày ĐK)</span>{% endif -%}
+  ).
+</div>
+{% endif %}
+
+{# Column registry for the column-picker. Order matches table render order.
+   `key` is the stable identifier persisted in localStorage; `default` flags
+   columns visible by default. New cols default to visible unless flagged. #}
+{% set bcct_columns = [
+  {'key': 'declaration_no', 'label': t('bcct.col.declaration_no'), 'default': true},
+  {'key': 'line_no',        'label': t('bcct.col.line'),           'default': true},
+  {'key': 'declaration_type','label': t('bcct.col.type'),          'default': true},
+  {'key': 'direction',      'label': t('bcct.col.direction'),      'default': true},
+  {'key': 'registration_date','label': t('bcct.col.date'),         'default': true},
+  {'key': 'customs_code',   'label': t('bcct.col.customs_code'),   'default': true},
+  {'key': 'internal_code',  'label': t('bcct.col.internal_code'),  'default': true},
+  {'key': 'goods_name',     'label': t('bcct.col.goods_name'),     'default': true},
+  {'key': 'quantity',       'label': t('bcct.col.qty'),            'default': true},
+  {'key': 'unit',           'label': t('bcct.col.unit'),           'default': true},
+  {'key': 'value_nt',       'label': 'Giá trị NT',                  'default': true},
+  {'key': 'value_vnd',      'label': 'Giá trị VND',                 'default': true},
+  {'key': 'inspect',        'label': 'Chi tiết',                    'default': true},
+] %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('bcct.title') }}</h2>
+      <p class="meta">{{ t('bcct.subtitle') }}</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-primary" href="/clients/{{ client.client_id }}/bcct/upload">{{ t('bcct.upload_btn') }}</a>
+    </div>
+  </div>
+
+  <div class="chip-row">
+    <a class="chip {{ 'chip-active' if not direction else '' }}"
+       href="/clients/{{ client.client_id }}/bcct{% if year %}?year={{ year }}{% endif %}">{{ t('common.all') }} ({{ paging.total }})</a>
+    <a class="chip {{ 'chip-active' if direction == 'import' else '' }}"
+       href="/clients/{{ client.client_id }}/bcct?direction=import{% if year %}&year={{ year }}{% endif %}">{{ t('bcct.direction.import') }}</a>
+    <a class="chip {{ 'chip-active' if direction == 'export' else '' }}"
+       href="/clients/{{ client.client_id }}/bcct?direction=export{% if year %}&year={{ year }}{% endif %}">{{ t('bcct.direction.export') }}</a>
+    {% for y in years %}
+    <a class="chip {{ 'chip-active' if year == y else '' }}"
+       href="/clients/{{ client.client_id }}/bcct?year={{ y }}{% if direction %}&direction={{ direction }}{% endif %}">{{ y }}</a>
+    {% endfor %}
+  </div>
+
+  <form method="get" action="/clients/{{ client.client_id }}/bcct" class="stack-form" style="margin: 1rem 0; max-width: 720px;">
+    {% if direction %}<input type="hidden" name="direction" value="{{ direction }}">{% endif %}
+    {% if year %}<input type="hidden" name="year" value="{{ year }}">{% endif %}
+    {% if sort.column != 'registration_date' or sort.direction != 'desc' %}
+      <input type="hidden" name="sort" value="{{ sort.column }}">
+      <input type="hidden" name="dir" value="{{ sort.direction }}">
+    {% endif %}
+    <input type="search" name="q" value="{{ q }}" placeholder="{{ t('bcct.search_placeholder') }}">
+  </form>
+
+  {% if items %}
+  <details class="col-picker" data-view-key="bcct_list" style="margin-bottom: .5rem;">
+    <summary class="btn-ghost" style="cursor: pointer; user-select: none;">⚙ Hiển thị cột</summary>
+    <div class="col-picker-panel" style="padding: .6rem; border: 1px solid var(--border); border-radius: 6px; margin-top: .25rem; display: flex; flex-wrap: wrap; gap: .35rem 1rem; max-width: 720px;">
+      {% for col in bcct_columns %}
+        <label style="font-size: .9rem; white-space: nowrap;">
+          <input type="checkbox" data-col-toggle="{{ col.key }}" {% if col.default %}checked{% endif %}>
+          {{ col.label }}
+        </label>
+      {% endfor %}
+      <button type="button" class="btn-ghost" data-col-reset style="margin-left: auto; font-size: .85rem;">Mặc định</button>
+    </div>
+  </details>
+
+  <table class="dh-table dense" data-col-table="bcct_list">
+    <thead>
+      <tr>
+        {{ sort_th('declaration_no', t('bcct.col.declaration_no'), sort=sort, sort_link=sort_link, attrs='data-col="declaration_no"') }}
+        <th data-col="line_no">{{ t('bcct.col.line') }}</th>
+        <th data-col="declaration_type">{{ t('bcct.col.type') }}</th>
+        <th data-col="direction">{{ t('bcct.col.direction') }}</th>
+        {{ sort_th('registration_date', t('bcct.col.date'), sort=sort, sort_link=sort_link, attrs='data-col="registration_date"') }}
+        {{ sort_th('customs_code', t('bcct.col.customs_code'), sort=sort, sort_link=sort_link, attrs='data-col="customs_code"') }}
+        <th data-col="internal_code" title="Tính tại runtime từ goods_name + parser rules (không lưu DB)">
+          {{ t('bcct.col.internal_code') }} <small class="meta">ƒ</small>
+        </th>
+        <th data-col="goods_name">{{ t('bcct.col.goods_name') }}</th>
+        <th data-col="quantity">{{ t('bcct.col.qty') }}</th>
+        <th data-col="unit">{{ t('bcct.col.unit') }}</th>
+        <th data-col="value_nt" title="Giá trị nguyên tệ trên tờ khai (FX-domain)">Giá trị NT</th>
+        <th data-col="value_vnd" title="Giá trị quy đổi VND (taxable domain)">Giá trị VND</th>
+        <th data-col="inspect" title="Click để xem trạng thái đầy đủ + lịch sử thay đổi">Chi tiết</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in items %}
+      <tr data-row-href="/clients/{{ client.client_id }}/bcct/history/{{ r.transaction_key }}/{{ r.line_no }}" tabindex="0">
+        <td class="mono" data-col="declaration_no">{{ r.declaration_no or '' }}</td>
+        <td data-col="line_no">{{ r.line_no }}</td>
+        <td class="mono" data-col="declaration_type">{{ r.declaration_type or '' }}</td>
+        <td data-col="direction">
+          {% if r.direction == 'import' %}<span class="badge badge-info">N</span>
+          {% elif r.direction == 'export' %}<span class="badge badge-success">X</span>
+          {% endif %}
+        </td>
+        <td class="mono" data-col="registration_date">{{ format_date(r.registration_date) }}</td>
+        <td class="mono" data-col="customs_code">{{ r.customs_code or '' }}</td>
+        <td class="mono" data-col="internal_code" style="font-style: italic; opacity: 0.85;"
+            title="Computed: {{ r.material_identity.resolution_source if r.material_identity else 'n/a' }}">{{ (r.material_identity.display_code if r.material_identity else '') or '' }}</td>
+        <td data-col="goods_name">{{ r.goods_name[:48] if r.goods_name else '' }}{% if r.goods_name and r.goods_name|length > 48 %}…{% endif %}</td>
+        <td class="mono" data-col="quantity" style="text-align: right;">{{ format_number(r.quantity, decimals=2, lang=lang) }}</td>
+        <td class="mono" data-col="unit">{{ r.unit or '' }}</td>
+        <td data-col="value_nt" style="text-align: right; white-space: nowrap;">{{ format_money(r.total_value_nt, r.currency_nt, decimals=2, lang=lang) }}</td>
+        <td data-col="value_vnd" style="text-align: right; white-space: nowrap;">{{ format_money(r.total_value, 'VND', decimals=0, lang=lang) }}</td>
+        <td data-col="inspect">
+          <a href="/clients/{{ client.client_id }}/bcct/history/{{ r.transaction_key }}/{{ r.line_no }}"
+             title="Trạng thái đầy đủ{% if r.history_count and r.history_count > 0 %} · {{ r.history_count }} lần thay đổi · gần nhất {{ r.last_changed_at.strftime('%Y-%m-%d %H:%M') if r.last_changed_at else '' }}{% endif %}">
+            🔍
+            {% if r.history_count and r.history_count > 0 %}
+              <span class="badge badge-warn">✏ {{ r.history_count }}</span>
+            {% endif %}
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include "clients/_pagination.html" %}
+  <script src="/static/js/col-picker.js" defer></script>
+  {% else %}
+  <div class="empty-state">
+    {% if q or year or direction %}
+    <p>Không có kết quả với bộ lọc hiện tại.</p>
+    <a class="btn-ghost" href="/clients/{{ client.client_id }}/bcct">Xóa bộ lọc</a>
+    {% else %}
+    <p>{{ t('bcct.empty') }}</p>
+    <a class="btn-primary" href="/clients/{{ client.client_id }}/bcct/upload">{{ t('bcct.upload_btn') }}</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

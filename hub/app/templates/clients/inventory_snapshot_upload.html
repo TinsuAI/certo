@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Tải lên chốt tồn kho · {{ client.name }}{% endblock %}
+{% block content %}
+{% import "clients/_flow.html" as flow with context %}
+{% include "_client_nav.html" %}
+
+{{ flow.rail(1) }}
+
+<section class="zone">
+  <div class="zone-head">
+    <div class="page-bar-main">
+      <h2>Tải lên chốt tồn kho cuối kỳ</h2>
+      <p class="meta">Hỗ trợ mẫu chuẩn hệ thống (sheet "Tồn kho") và các định dạng kiểm kê đã hỗ trợ. <a href="/templates/inventory-snapshot.xlsx">Tải mẫu chuẩn</a>.</p>
+    </div>
+  </div>
+
+  {% if error %}<div class="callout callout-error">{{ error }}</div>{% endif %}
+
+  <form method="post" action="/clients/{{ client.client_id }}/inventory-snapshots/upload"
+        enctype="multipart/form-data" class="upload-card">
+    <div class="upload-card-head">
+      <h3>{{ t('flow.file_card') }}</h3>
+      <p>Nếu mỗi kho một sheet, để trống cột Kho — hệ thống lấy tên sheet làm kho.</p>
+    </div>
+
+    <div class="upload-card-body">
+      <div class="upload-zone">
+        <input type="file" name="file" accept=".xlsx,.xls" required>
+        <p class="meta">{{ t('flow.file_hint_excel') }}</p>
+      </div>
+
+      <div class="upload-fields">
+        <label>Ngày chốt <span class="req">*</span>
+          <input type="date" name="snapshot_date" required></label>
+        <label>Adapter
+          <select name="adapter">
+            <option value="auto" {{ 'selected' if default_adapter == 'auto' else '' }}>auto — tự nhận diện</option>
+            {% for a in adapters %}
+            <option value="{{ a }}" {{ 'selected' if default_adapter == a else '' }}>{{ a }}</option>
+            {% endfor %}
+          </select></label>
+      </div>
+    </div>
+
+    <footer class="commit-bar">
+      <span class="commit-note">{{ t('flow.commit_hint') }}</span>
+      <div class="commit-actions">
+        <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/inventory-snapshots">{{ t('common.cancel') }}</a>
+        <button type="submit" class="btn-primary">Tải lên &amp; xem trước</button>
+      </div>
+    </footer>
+  </form>
+
+  <form method="post" action="/clients/{{ client.client_id }}/inventory-snapshots/default-adapter"
+        class="upload-card">
+    <div class="upload-card-head">
+      <h3>Adapter mặc định</h3>
+      <p>Áp cho client này khi lượt tải lên chọn <span class="mono">auto</span>.</p>
+    </div>
+
+    <div class="upload-card-body">
+      <div class="upload-fields">
+        <label>Adapter
+          <select name="adapter">
+            <option value="auto" {{ 'selected' if default_adapter == 'auto' else '' }}>auto</option>
+            {% for a in adapters %}
+            <option value="{{ a }}" {{ 'selected' if default_adapter == a else '' }}>{{ a }}</option>
+            {% endfor %}
+          </select></label>
+      </div>
+    </div>
+
+    <footer class="commit-bar">
+      <div class="commit-actions">
+        <button type="submit" class="btn-secondary btn-sm">Lưu mặc định</button>
+      </div>
+    </footer>
+  </form>
+</section>
+{% endblock %}

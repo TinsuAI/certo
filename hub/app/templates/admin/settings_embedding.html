@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Embedding settings · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+{% include "_admin_nav.html" %}
+<section class="page-bar">
+  <div class="page-bar-main">
+    <h1>Cài đặt embedding</h1>
+    <span class="page-tagline">Vector hoá vật tư cho tính năng "Vật tư thay thế" (P5b). Chỉ <code>dev</code>-role.</span>
+  </div>
+</section>
+
+{% if saved %}
+<div class="toast toast-success">Đã lưu cài đặt.</div>
+{% endif %}
+{% if test_result %}
+<div class="toast toast-success">{{ test_result }}</div>
+{% endif %}
+{% if test_error %}
+<div class="toast toast-error">{{ test_error }}</div>
+{% endif %}
+
+<form method="post" action="/admin/settings/embedding" class="settings-form">
+  <section class="zone">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('admin.settings.group.embed_endpoint') }}</h2>
+        <p class="meta">
+          Hub gọi OpenRouter (OpenAI-compat) để embed mô tả vật tư khi ingest hoặc
+          khi config đổi. Vector lưu trong
+          <code>hub.materials.description_embedding</code> (pgvector, cosine ANN).
+          Lúc tìm "vật tư thay thế" trên trang chi tiết, hệ thống
+          <strong>không gọi API</strong> — chỉ truy vấn HNSW index trên DB.
+        </p>
+      </div>
+    </div>
+    <div class="settings-grid">
+      <div class="field">
+        <label for="openrouter_api_key">OpenRouter API key</label>
+        <input type="password" id="openrouter_api_key" name="openrouter_api_key"
+               placeholder="{% if api_key_set %}••• đã đặt — bỏ trống nếu giữ key cũ{% else %}sk-or-…{% endif %}">
+        <span class="field-hint">Lấy từ <code>https://openrouter.ai/keys</code>. Để trống khi submit = giữ key cũ.</span>
+      </div>
+
+      <div class="field">
+        <label for="base_url">Base URL</label>
+        <input type="text" id="base_url" name="base_url" class="mono"
+               value="{{ cfg.base_url }}" placeholder="https://openrouter.ai/api/v1">
+        <span class="field-hint">
+          Endpoint OpenAI-compat. Hub POST <code>/embeddings</code> ở đây. Đổi sang
+          Voyage / Cohere / self-host nếu cần.
+        </span>
+      </div>
+
+      <div class="field">
+        <label for="model">Model</label>
+        <input type="text" id="model" name="model" value="{{ cfg.model }}" class="mono"
+               placeholder="openai/text-embedding-3-small">
+        <span class="field-hint">
+          Mặc định <code>openai/text-embedding-3-small</code> (1536-dim,
+          ~$0.02/1M tokens). Đổi model = mọi vật tư được đánh dấu "cần phân tích
+          lại"; bấm Cập nhật trên trang Danh mục để đồng bộ.
+        </span>
+      </div>
+
+      <div class="field">
+        <label for="timeout_seconds">Timeout (giây)</label>
+        <input type="number" id="timeout_seconds" name="timeout_seconds" class="mono"
+               value="{{ cfg.timeout_seconds }}" min="5" max="300">
+        <span class="field-hint">{{ t('admin.embed.timeout_hint') }}</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="zone">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('admin.settings.group.embed_tuning') }}</h2>
+        <p class="meta">
+          Sau khi lưu, dùng <strong>Test connection</strong> để gọi 1 request thật
+          + xác nhận key + model hợp lệ. Sau đó vào trang <strong>Danh mục</strong>
+          của từng khách hàng để bấm <strong>Cập nhật phân tích AI</strong>.
+        </p>
+      </div>
+    </div>
+    <div class="settings-grid">
+      <div class="field">
+        <label for="dim">Dimension</label>
+        <input type="number" id="dim" name="dim" value="{{ cfg.dim }}" min="64" max="4096" class="mono">
+        <span class="field-hint">
+          Phải khớp model. Mặc định 1536. Đổi dim = phải re-create cột vector +
+          HNSW index (mig mới).
+        </span>
+      </div>
+
+      <div class="field">
+        <label for="batch_size">Batch size</label>
+        <input type="number" id="batch_size" name="batch_size" value="{{ cfg.batch_size }}"
+               min="1" max="500" class="mono">
+        <span class="field-hint">Số texts mỗi POST. 100 phù hợp với hầu hết model.</span>
+      </div>
+
+      <div class="field">
+        <label for="score_threshold">Score threshold (cosine)</label>
+        <input type="number" id="score_threshold" name="score_threshold" class="mono"
+               value="{{ cfg.score_threshold }}" min="0" max="1" step="0.01">
+        <span class="field-hint">
+          Ngưỡng cosine để tạo cặp gợi ý "vật tư thay thế" theo phân tích AI.
+          0.7 = chặt (chỉ vật tư rất giống), 0.5 = lỏng (gợi ý nhiều hơn nhưng dễ noise).
+        </span>
+      </div>
+
+      <div class="field field-wide">
+        <label for="text_template">Text template</label>
+        <textarea id="text_template" name="text_template" rows="2" class="mono">{{ cfg.text_template }}</textarea>
+        <span class="field-hint">
+          Python <code>str.format()</code> — placeholders: <code>{name}</code>,
+          <code>{material_code}</code>, <code>{hs_code}</code>, <code>{unit}</code>,
+          <code>{country_origin}</code>, <code>{category}</code>, <code>{notes}</code>.
+          Đổi template = mọi vật tư được đánh dấu cần phân tích lại.
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <div class="settings-footer">
+    <button type="submit" class="btn-secondary"
+            formaction="/admin/settings/embedding/test" formmethod="post">
+      ↗ Test connection
+    </button>
+    <button type="submit" class="btn-primary">Lưu</button>
+  </div>
+</form>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Cập nhật phân tích AI</h2>
+      <p class="meta">
+        Sau khi đổi <strong>model</strong> hoặc <strong>text template</strong> ở
+        trên + <strong>Lưu</strong>, kết quả phân tích AI hiện có của mọi vật tư sẽ
+        không khớp với cấu hình mới. Cập nhật từ trang Danh mục của từng khách hàng.
+      </p>
+    </div>
+  </div>
+  <div class="toast">
+    Vào <strong>Khách hàng → &lt;tên khách&gt; → Danh mục</strong>. Phần "Phân tích
+    AI vật tư" ở đầu trang có 2 nút:
+    <strong>Cập nhật phân tích AI</strong> — chỉ làm những vật tư cần cập nhật (tiết
+    kiệm API call, an toàn, idempotent);
+    <strong>Làm lại từ đầu</strong> — xóa kết quả cũ + làm lại toàn bộ, dùng khi nghi
+    vector cũ sai hoặc đổi prompt mà không đổi model.
+    Job chạy nền với trang theo dõi tiến độ riêng; lịch sử các lần chạy xem ở
+    <strong>Khách hàng → Danh mục → "Lịch sử chạy"</strong>.
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Edit rule #{{ rule.rule_id }} · {{ client.name }}{% endblock %}
+{% block content %}
+{# Trang này tự dựng thanh tiêu đề riêng (có tiêu đề cụ thể hơn), nên không
+   include "_client_nav.html" nữa — nếu include sẽ ra hai thanh tiêu đề chồng
+   nhau. Điều hướng khu làm việc nằm ở thanh bên (_sidebar.html). #}
+
+<section class="page-bar">
+  <div>
+    <h1>Edit rule #{{ rule.rule_id }}</h1>
+    <span class="page-tagline">
+      <span class="mono">{{ rule.output_field }}</span> ·
+      priority <span class="mono">{{ rule.priority }}</span> ·
+      {{ 'enabled' if rule.enabled else 'disabled' }}
+    </span>
+  </div>
+  <div class="page-actions">
+    <a class="btn-secondary" href="/clients/{{ client.client_id }}/parser-rules">Cancel</a>
+  </div>
+</section>
+
+{% if error %}
+<div class="callout callout-error"><strong>Error:</strong> <code>{{ error }}</code></div>
+{% endif %}
+
+<form method="post"
+      action="/clients/{{ client.client_id }}/parser-rules/{{ rule.rule_id }}/edit"
+      class="settings-form">
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <h2>Rule fields</h2>
+      <p class="meta">
+        <code>output_field</code> is immutable after creation — recreate
+        if you need to switch. Pattern compiles via re2 on save.
+      </p>
+    </div>
+    <div class="settings-grid">
+      <label class="field">
+        <span class="field-label">priority <em class="field-required">required</em></span>
+        <input type="number" name="priority" required min="1" value="{{ rule.priority }}">
+      </label>
+      <label class="field">
+        <span class="field-label">source_field</span>
+        <input type="text" name="source_field" value="{{ rule.source_field }}">
+      </label>
+      <label class="field">
+        <span class="field-label">match_group</span>
+        <input type="number" name="match_group" min="0" value="{{ rule.match_group }}">
+      </label>
+      <label class="field">
+        <span class="field-label">match_action</span>
+        <select name="match_action">
+          <option value="capture" {% if rule.match_action == 'capture' %}selected{% endif %}>capture</option>
+          <option value="reject" {% if rule.match_action == 'reject' %}selected{% endif %}>reject</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">no_match_action</span>
+        <select name="no_match_action">
+          <option value="next_rule" {% if rule.no_match_action == 'next_rule' %}selected{% endif %}>next_rule</option>
+          <option value="return_null" {% if rule.no_match_action == 'return_null' %}selected{% endif %}>return_null</option>
+        </select>
+      </label>
+    </div>
+    <label class="field">
+      <span class="field-label">pattern (re2 syntax) <em class="field-required">required</em></span>
+      <input type="text" name="pattern" required class="mono"
+             value="{{ rule.pattern }}">
+    </label>
+    <label class="field">
+      <span class="field-label">notes</span>
+      <input type="text" name="notes" value="{{ rule.notes or '' }}">
+    </label>
+    <footer class="commit-bar commit-bar-standalone">
+      <span class="commit-note">Pattern compiles via re2 on save.</span>
+      <div class="commit-actions">
+        <button type="submit" class="btn-primary">Save changes</button>
+        <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/parser-rules">{{ t('common.cancel') }}</a>
+      </div>
+    </footer>
+  </section>
+</form>
+
+{% endblock %}

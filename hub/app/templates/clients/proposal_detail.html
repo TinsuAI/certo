@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Proposal {{ proposal.proposal_id[:12] }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+{% set state_badge = {
+  'pending':   ('badge-warning',  t('proposals.status_pending')),
+  'approved':  ('badge-success',  t('proposals.status_approved')),
+  'rejected':  ('badge-critical', t('proposals.status_rejected')),
+  'withdrawn': ('badge-muted',    t('proposals.status_withdrawn')),
+} %}
+{% set kind, label = state_badge.get(proposal.status, ('badge-muted', proposal.status)) %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Proposal <span class="badge {{ kind }}">{{ label }}</span></h2>
+      <p class="meta mono">{{ proposal.proposal_id }}</p>
+    </div>
+    <div><a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/proposals">← {{ t('proposals.title') }}</a></div>
+  </div>
+
+  {% if proposal.status == 'pending' %}
+  <div class="decide">
+    <div class="decide-head">
+      <h3>{{ t('proposals.review.heading') }}</h3>
+      <p class="meta">{{ t('proposals.review.body') }}</p>
+    </div>
+    <div class="decide-body">
+      <p>
+        <span class="mono">{{ proposal.product_code }}</span>
+        · <span class="badge badge-info">{{ proposal.intent }}</span>
+        · <span class="badge badge-muted">{{ proposal.actor }}</span>
+        · {{ t('proposals.proposed_rows') }}: <span class="mono">{{ proposal.rows_payload|length }}</span>
+      </p>
+      {% if proposal.failed_conditions %}
+      <p class="decide-fail">
+        {{ t('proposals.failed_conditions') }}:
+        {% for c in proposal.failed_conditions %}<span class="badge badge-critical mono">{{ c }}</span> {% endfor %}
+      </p>
+      {% endif %}
+    </div>
+    <div class="decide-foot">
+      {% if can_approve %}
+      {% if can_edit %}
+      <form method="post"
+            action="/clients/{{ client.client_id }}/proposals/{{ proposal.proposal_id }}/withdraw"
+            onsubmit="return confirm('{{ t('proposals.review.withdraw_confirm') }}');">
+        <button type="submit" class="btn-ghost btn-sm">{{ t('proposals.review.withdraw_btn') }}</button>
+      </form>
+      {% endif %}
+      <form method="post"
+            action="/clients/{{ client.client_id }}/proposals/{{ proposal.proposal_id }}/reject">
+        <input type="text" name="reason" placeholder="{{ t('proposals.review.reject_reason_placeholder') }}" required>
+        <button type="submit" class="btn-secondary btn-sm">{{ t('proposals.review.reject_btn') }}</button>
+      </form>
+      <form method="post"
+            action="/clients/{{ client.client_id }}/proposals/{{ proposal.proposal_id }}/approve">
+        <input type="text" name="reason" placeholder="{{ t('proposals.review.approve_reason_placeholder') }}">
+        <button type="submit" class="btn-primary btn-sm">{{ t('proposals.review.approve_btn') }}</button>
+      </form>
+      {% else %}
+      <span class="decide-hint">{{ t('proposals.review.no_permission') }}</span>
+      {% if can_edit %}
+      <form method="post"
+            action="/clients/{{ client.client_id }}/proposals/{{ proposal.proposal_id }}/withdraw"
+            onsubmit="return confirm('{{ t('proposals.review.withdraw_confirm') }}');">
+        <button type="submit" class="btn-secondary btn-sm">{{ t('proposals.review.withdraw_btn') }}</button>
+      </form>
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="decide is-{{ 'approved' if proposal.status == 'approved' else ('rejected' if proposal.status == 'rejected' else 'closed') }}">
+    <div class="decide-head">
+      <h3>{{ label }}</h3>
+      <p class="meta mono">{{ proposal.decided_at.strftime('%Y-%m-%d %H:%M:%S') if proposal.decided_at else '—' }}
+        · {{ proposal.decided_by or '—' }}</p>
+    </div>
+    <div class="decide-body">
+      <p>{{ proposal.decision_reason or '—' }}</p>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="table-wrap">
+    <table class="dh-table dense kv">
+      <tbody>
+      <tr><th>{{ t('proposals.col.product') }}</th><td class="mono">{{ proposal.product_code }}</td></tr>
+      <tr><th>{{ t('bom.col.actor') }}</th><td><span class="badge badge-muted">{{ proposal.actor }}</span></td></tr>
+      <tr><th>{{ t('bom.col.intent') }}</th><td><span class="badge badge-info">{{ proposal.intent }}</span></td></tr>
+      <tr><th>{{ t('proposals.parent') }}</th><td class="mono">
+        {% if proposal.parent_artifact_id %}<a href="/clients/{{ client.client_id }}/bom/artifact/{{ proposal.parent_artifact_id }}">{{ proposal.parent_artifact_id }}</a>
+        {% else %}—{% endif %}
+      </td></tr>
+      <tr><th>{{ t('proposals.materialized') }}</th><td class="mono">
+        {% if proposal.materialized_artifact_id %}<a href="/clients/{{ client.client_id }}/bom/artifact/{{ proposal.materialized_artifact_id }}">{{ proposal.materialized_artifact_id }}</a>
+        {% else %}—{% endif %}
+      </td></tr>
+      <tr><th>{{ t('proposals.decision_reason') }}</th><td>{{ proposal.decision_reason or '—' }}</td></tr>
+      <tr><th>{{ t('proposals.decided_by') }}</th><td class="mono">{{ proposal.decided_by or '—' }}</td></tr>
+      <tr><th>{{ t('proposals.decided_at') }}</th><td class="mono">{{ proposal.decided_at.strftime('%Y-%m-%d %H:%M:%S') if proposal.decided_at else '—' }}</td></tr>
+      <tr><th>{{ t('common.created') }}</th><td class="mono">{{ proposal.created_at.strftime('%Y-%m-%d %H:%M:%S') if proposal.created_at else '—' }}</td></tr>
+      <tr><th>{{ t('proposals.hash') }}</th><td class="mono">{{ proposal.normalized_hash[:24] }}…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  {% if proposal.failed_conditions %}
+  <section class="callout callout-danger">
+    <span class="callout-icon">!</span>
+    <div>
+      <div class="callout-title">{{ t('proposals.failed_conditions') }}</div>
+      <ul class="mono callout-list">
+        {% for c in proposal.failed_conditions %}<li>{{ c }}</li>{% endfor %}
+      </ul>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if proposal.context %}
+  <details class="tech-block">
+    <summary class="subsection-head"><h3>{{ t('proposals.context') }}</h3></summary>
+    <pre class="mono code-block">{{ proposal.context | tojson(indent=2) }}</pre>
+  </details>
+  {% endif %}
+
+  <div class="subsection-head">
+    <h3>{{ t('proposals.proposed_rows') }} <span class="mono">({{ proposal.rows_payload|length }})</span></h3>
+  </div>
+  <div class="table-wrap">
+    <table class="dh-table dense">
+      <thead><tr>
+        <th>{{ t('bom.material') }}</th>
+        <th class="num">{{ t('bom.qty_per_unit') }}</th>
+        <th>{{ t('bom.uom') }}</th>
+        <th>{{ t('bom.bom_code') }}</th>
+      </tr></thead>
+      <tbody>
+        {% for r in proposal.rows_payload %}
+        <tr>
+          <td class="mono">{{ r.material_code }}</td>
+          <td class="num">{{ r.qty_per_unit }}</td>
+          <td class="mono">{{ r.uom or '' }}</td>
+          <td class="mono">{{ r.bom_code or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

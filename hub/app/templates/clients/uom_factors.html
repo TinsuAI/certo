@@ -1,0 +1,370 @@
+{% extends "base.html" %}
+{% block title %}Hệ số quy đổi UoM · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+{% set has_prefill = prefill_material_code or prefill_from_uom or prefill_to_uom %}
+
+<section class="page-bar uom-subbar">
+  <h1 class="uom-h1">Hệ số quy đổi đơn vị</h1>
+  <span class="page-tagline">
+    Phase 2 · per-client. Cross-family (count↔mass…) bắt buộc có factor; cùng họ tự
+    quy đổi qua <span class="mono">uom_canonical</span>.
+  </span>
+  <div class="page-actions">
+    <span class="badge badge-neutral">{{ summary.total }} hệ số</span>
+    {% if summary.cross_family %}<span class="badge badge-warning">{{ summary.cross_family }} khác họ</span>{% endif %}
+    {% if uom_admin_link %}<a class="btn-secondary btn-sm" href="/admin/uom" title="Đơn vị chuẩn + alias toàn hệ thống">Chuẩn UoM hệ thống →</a>{% endif %}
+    {% if can_edit %}<button type="button" class="btn-primary btn-sm" data-uom-toggle="add-factor-panel">＋ Thêm hệ số</button>{% endif %}
+  </div>
+</section>
+
+{% if saved %}<div class="toast toast-success">{{ saved }}</div>{% endif %}
+{% if error %}<div class="toast toast-error">{{ error }}</div>{% endif %}
+
+{% if can_edit %}
+<section class="zone uom-addpanel{% if has_prefill %} uom-prefill{% endif %}"
+         id="add-factor-panel" {% if not has_prefill %}hidden{% endif %}>
+  <div class="zone-head">
+    <div>
+      <h2>Thêm hệ số{% if has_prefill %} <small class="uom-prefill-tag">· prefill từ preview</small>{% endif %}</h2>
+      <p class="meta">Để trống <span class="mono">Mã</span> = override áp cho mọi material của client.</p>
+    </div>
+  </div>
+  <form method="post" action="/clients/{{ client.client_id }}/uom-factors/new" class="uom-addgrid">
+    <label>Mã NPL/SP <small>(trống = mọi mã)</small>
+      <input type="text" name="material_code" value="{{ prefill_material_code }}" placeholder="vd: M_X"></label>
+    <label>Từ UoM
+      <input type="text" name="from_uom" id="uomf-from" required value="{{ prefill_from_uom }}" placeholder="EA"></label>
+    <label>Sang UoM
+      <input type="text" name="to_uom" id="uomf-to" required value="{{ prefill_to_uom }}" placeholder="KG"></label>
+    <label>Hệ số
+      <input type="text" name="factor" id="uomf-factor" required placeholder="0.5"></label>
+    <label>Nguồn
+      <select name="source">
+        {% for s in valid_sources %}<option value="{{ s }}" {% if s == 'staff_form' %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      </select></label>
+    <label class="uom-addnotes">Ghi chú<input type="text" name="notes"></label>
+    <button type="submit" class="btn-primary">Thêm</button>
+  </form>
+  <p class="uom-preview" id="uomf-preview" hidden></p>
+</section>
+{% endif %}
+
+<section class="zone">
+  <p class="uom-dir-hint">
+    <b>Hệ số</b> = 1 đơn vị <b>"Từ"</b> quy ra bao nhiêu đơn vị <b>"Sang"</b>.
+    Khi quy đổi: số lượng (Sang) = số lượng (Từ) <b>×</b> hệ số.
+    Ví dụ: Từ = <code>EA</code>, Sang = <code>KG</code>, hệ số = <code>0.5</code>
+    ⇒ <b>1 EA = 0.5 KG</b> (4 EA = 2 KG).
+  </p>
+
+  <div class="uom-fcontrols">
+    <div class="uom-search-wrap">
+      <input id="uomf-search" class="uom-search" type="search" autocomplete="off"
+             placeholder="Tìm mã · tên · đơn vị · nguồn…">
+    </div>
+    <label class="uom-crossonly"><input type="checkbox" id="uomf-crossonly"> Chỉ khác họ</label>
+    <span class="uom-fcount meta"></span>
+  </div>
+
+  {% if factors %}
+  <table class="data-table uom-ftable">
+    <thead>
+      <tr>
+        <th data-sort="mc" class="uom-sortable">Mã</th>
+        <th>Tên</th>
+        <th data-sort="fromto" class="uom-sortable">Từ → Sang</th>
+        <th data-sort="factor" class="num uom-sortable" title="số lượng (Sang) = số lượng (Từ) × hệ số">Hệ số</th>
+        <th data-sort="cross" class="uom-sortable">Khác họ</th>
+        <th data-sort="source" class="uom-sortable">Nguồn</th>
+        <th>Ghi chú</th>
+        {% if can_edit %}<th aria-hidden="true"></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+    {% for f in factors %}
+      <tr class="uom-frow{% if f.is_cross_family %} is-cross{% endif %}"
+          data-key="{{ loop.index0 }}"
+          data-mc="{{ f.material_code or '' }}"
+          data-from="{{ f.from_uom }}" data-to="{{ f.to_uom }}"
+          data-factor="{{ f.factor_disp }}" data-source="{{ f.source }}"
+          data-notes="{{ f.notes or '' }}"
+          data-cross="{{ '1' if f.is_cross_family else '0' }}"
+          data-search="{{ f.material_code or '' }} {{ f.material_name or '' }} {{ f.from_uom }} {{ f.to_uom }} {{ f.source }} {{ f.notes or '' }}">
+        <td class="mono">{{ f.material_code or '—' }}</td>
+        <td>{{ f.material_name or ('client-wide' if not f.material_code else '') }}</td>
+        <td class="mono uom-fromto"><span>{{ f.from_uom }}</span><span class="uom-arrow">→</span><span>{{ f.to_uom }}</span></td>
+        <td class="num mono">{{ f.factor_disp }}</td>
+        <td>{% if f.is_cross_family %}<span class="badge badge-warning">khác họ</span>{% else %}<span class="badge badge-neutral">cùng họ</span>{% endif %}</td>
+        <td><span class="badge">{{ f.source }}</span></td>
+        <td class="uom-note">{{ f.notes or '' }}</td>
+        {% if can_edit %}<td class="uom-rowact"><button type="button" class="btn-ghost btn-sm uom-edit-btn">Sửa</button></td>{% endif %}
+      </tr>
+      {% if can_edit %}<tr class="uom-eslot" data-slot="{{ loop.index0 }}" hidden><td colspan="8"></td></tr>{% endif %}
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="meta uom-fnoresults" hidden>Không có hệ số nào khớp.</p>
+  <div class="uom-pager" id="uomf-pager" hidden>
+    <button type="button" class="btn-secondary btn-sm" id="uomf-prev">← Trước</button>
+    <span class="uom-pageinfo meta" id="uomf-pageinfo"></span>
+    <button type="button" class="btn-secondary btn-sm" id="uomf-next">Sau →</button>
+    <label class="uom-pagesize meta">Mỗi trang
+      <select id="uomf-pagesize">
+        <option value="25">25</option>
+        <option value="50" selected>50</option>
+        <option value="100">100</option>
+        <option value="0">Tất cả</option>
+      </select>
+    </label>
+  </div>
+  {% else %}
+  <p class="muted">Chưa có hệ số nào.{% if can_edit %} Thêm dòng đầu tiên (nút “＋ Thêm hệ số”) hoặc import file bên dưới.{% endif %}</p>
+  {% endif %}
+</section>
+
+{% if can_edit %}
+{# Single editor instance — JS moves it into the active row's slot. #}
+<div id="uom-editor-park" hidden>
+  <div class="uom-editor">
+    <div class="uom-editor-ctx">
+      <span class="uom-label">Đang sửa</span>
+      <code class="mono" data-ed="mc"></code>
+      <span class="mono uom-fromto"><span data-ed="from"></span><span class="uom-arrow">→</span><span data-ed="to"></span></span>
+      <span class="uom-editor-readout mono" data-ed="readout"></span>
+    </div>
+    <form method="post" action="/clients/{{ client.client_id }}/uom-factors/update" class="uom-editor-form">
+      <input type="hidden" name="material_code" data-ed="f-mc">
+      <input type="hidden" name="from_uom" data-ed="f-from">
+      <input type="hidden" name="to_uom" data-ed="f-to">
+      <label>Hệ số<input type="text" name="factor" data-ed="f-factor" required></label>
+      <label>Nguồn
+        <select name="source" data-ed="f-source">
+          {% for s in valid_sources %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        </select></label>
+      <label class="uom-editor-notes">Ghi chú<input type="text" name="notes" data-ed="f-notes"></label>
+      <button type="submit" class="btn-primary btn-sm">Lưu</button>
+      <button type="button" class="btn-secondary btn-sm uom-editor-cancel">Hủy</button>
+    </form>
+    <form method="post" action="/clients/{{ client.client_id }}/uom-factors/delete"
+          class="uom-editor-del" onsubmit="return confirm('Xóa hệ số này?')">
+      <input type="hidden" name="material_code" data-ed="d-mc">
+      <input type="hidden" name="from_uom" data-ed="d-from">
+      <input type="hidden" name="to_uom" data-ed="d-to">
+      <button type="submit" class="btn-ghost btn-sm uom-danger">Xóa</button>
+    </form>
+  </div>
+</div>
+
+<details class="zone uom-import">
+  <summary>Import từ file (CSV / Excel)</summary>
+  <p class="meta">
+    Cột bắt buộc: <code>material_code</code>, <code>from_uom</code>, <code>to_uom</code>,
+    <code>factor</code> (tùy chọn <code>notes</code>). Trống <code>material_code</code> = client-wide.
+  </p>
+  <p>
+    <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/uom-factors/template.xlsx" download>⬇ Tải template XLSX</a>
+    <span class="meta">Template gồm 2 sheet: dữ liệu + Hướng dẫn.</span>
+  </p>
+  <form method="post" action="/clients/{{ client.client_id }}/uom-factors/import"
+        enctype="multipart/form-data" class="uom-import-form">
+    <label>File<input type="file" name="upload" accept=".csv,.xlsx,.xlsm,text/csv" required></label>
+    <label>Nguồn (cả file)
+      <select name="source">
+        {% for s in valid_sources %}<option value="{{ s }}" {% if s == 'imported' %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      </select></label>
+    <button type="submit" class="btn-secondary btn-sm">Import</button>
+  </form>
+</details>
+{% endif %}
+
+<script>
+(function () {
+  var table = document.querySelector(".uom-ftable");
+  var tbody = table ? table.querySelector("tbody") : null;
+  var search = document.getElementById("uomf-search");
+  var crossCb = document.getElementById("uomf-crossonly");
+  var countEl = document.querySelector(".uom-fcount");
+  var noRes = document.querySelector(".uom-fnoresults");
+  var park = document.getElementById("uom-editor-park");
+  var ed = park ? park.querySelector(".uom-editor") : null;
+  var activeRow = null;
+  if (!tbody) return;
+
+  var rows = Array.prototype.slice.call(tbody.querySelectorAll(".uom-frow"));
+  var total = rows.length;
+
+  function slotFor(row) {
+    return tbody.querySelector('.uom-eslot[data-slot="' + row.dataset.key + '"]');
+  }
+
+  // ── Edit drawer (single shared editor) ───────────────────────────
+  function closeEditor() {
+    if (activeRow) {
+      activeRow.classList.remove("is-editing");
+      var s = slotFor(activeRow);
+      if (s) s.hidden = true;
+      activeRow = null;
+    }
+    if (ed && park) park.appendChild(ed);
+  }
+  function openEditor(row) {
+    if (!ed) return;
+    if (activeRow === row) { closeEditor(); return; }
+    closeEditor();
+    var mc = row.dataset.mc;
+    function set(k, v) { var el = ed.querySelector('[data-ed="' + k + '"]'); if (el) { if ("value" in el) el.value = v; else el.textContent = v; } }
+    set("mc", mc || "— (client-wide)");
+    set("from", row.dataset.from); set("to", row.dataset.to);
+    set("f-mc", mc); set("f-from", row.dataset.from); set("f-to", row.dataset.to);
+    set("f-factor", row.dataset.factor); set("f-source", row.dataset.source); set("f-notes", row.dataset.notes);
+    set("d-mc", mc); set("d-from", row.dataset.from); set("d-to", row.dataset.to);
+    var slot = slotFor(row);
+    slot.querySelector("td").appendChild(ed);
+    slot.hidden = false;
+    row.classList.add("is-editing");
+    activeRow = row;
+    edReadout();
+    var fi = ed.querySelector('[data-ed="f-factor"]');
+    if (fi) fi.focus();
+  }
+  function edReadout() {
+    if (!ed) return;
+    var out = ed.querySelector('[data-ed="readout"]');
+    var fi = ed.querySelector('[data-ed="f-factor"]');
+    if (!out || !fi) return;
+    var from = ed.querySelector('[data-ed="from"]').textContent,
+        to = ed.querySelector('[data-ed="to"]').textContent,
+        k = fi.value.trim();
+    out.textContent = (from && to && k) ? ("→ 1 " + from + " = " + k + " " + to) : "";
+  }
+  if (park) {
+    tbody.addEventListener("click", function (e) {
+      var btn = e.target.closest(".uom-edit-btn");
+      if (!btn) return;
+      openEditor(btn.closest(".uom-frow"));
+    });
+    ed.querySelector(".uom-editor-cancel").addEventListener("click", closeEditor);
+    var efi = ed.querySelector('[data-ed="f-factor"]');
+    if (efi) efi.addEventListener("input", edReadout);
+  }
+
+  // ── Filter + sort + pagination (all client-side) ─────────────────
+  // Search / cross-only filter and column sort operate over the FULL row
+  // set; pagination then windows the matching, sorted rows. Keeping it
+  // client-side preserves instant search across every row (server paging
+  // would only search the current page).
+  var pageSize = 50, currentPage = 1;
+  var pager = document.getElementById("uomf-pager"),
+      prevBtn = document.getElementById("uomf-prev"),
+      nextBtn = document.getElementById("uomf-next"),
+      pageInfo = document.getElementById("uomf-pageinfo"),
+      sizeSel = document.getElementById("uomf-pagesize");
+
+  function matches(r) {
+    var q = (search ? search.value : "").trim().toLowerCase();
+    var crossOnly = crossCb && crossCb.checked;
+    return (!q || r.dataset.search.toLowerCase().indexOf(q) !== -1) &&
+           (!crossOnly || r.dataset.cross === "1");
+  }
+
+  function rerender() {
+    var matched = rows.filter(matches);
+    var totalMatched = matched.length;
+    var size = pageSize > 0 ? pageSize : (totalMatched || 1);
+    var pages = Math.max(1, Math.ceil(totalMatched / size));
+    if (currentPage > pages) currentPage = pages;
+    if (currentPage < 1) currentPage = 1;
+    var start = (currentPage - 1) * size, end = start + size;
+
+    rows.forEach(function (r) {
+      r.hidden = true;
+      var s = slotFor(r);
+      if (s) s.hidden = true;
+    });
+    for (var i = start; i < end && i < totalMatched; i++) matched[i].hidden = false;
+    if (activeRow) {
+      if (!activeRow.hidden) { var as = slotFor(activeRow); if (as) as.hidden = false; }
+      else closeEditor();
+    }
+
+    if (countEl) countEl.textContent = totalMatched === total
+      ? (total + " hệ số") : (totalMatched + " / " + total + " khớp");
+    if (noRes) noRes.hidden = totalMatched > 0;
+    if (pager) {
+      pager.hidden = total === 0;
+      var fromN = totalMatched ? start + 1 : 0, toN = Math.min(end, totalMatched);
+      if (pageInfo) pageInfo.textContent = totalMatched
+        ? (fromN + "–" + toN + " / " + totalMatched + "  ·  trang " + currentPage + "/" + pages)
+        : "0 kết quả";
+      if (prevBtn) prevBtn.disabled = currentPage <= 1;
+      if (nextBtn) nextBtn.disabled = currentPage >= pages;
+    }
+  }
+
+  function resetPage() { currentPage = 1; rerender(); }
+  if (search) search.addEventListener("input", resetPage);
+  if (crossCb) crossCb.addEventListener("change", resetPage);
+  if (prevBtn) prevBtn.addEventListener("click", function () { currentPage--; rerender(); window.scrollTo(0, 0); });
+  if (nextBtn) nextBtn.addEventListener("click", function () { currentPage++; rerender(); window.scrollTo(0, 0); });
+  if (sizeSel) sizeSel.addEventListener("change", function () { pageSize = parseInt(sizeSel.value, 10) || 0; resetPage(); });
+
+  // Column sort — reorders the full set, then re-windows.
+  function val(r, k) {
+    if (k === "mc") return (r.dataset.mc || "￿").toLowerCase();
+    if (k === "fromto") return (r.dataset.from + ">" + r.dataset.to).toLowerCase();
+    if (k === "factor") return parseFloat(r.dataset.factor) || 0;
+    if (k === "cross") return r.dataset.cross;
+    if (k === "source") return r.dataset.source.toLowerCase();
+    return "";
+  }
+  table.querySelectorAll("th.uom-sortable").forEach(function (th) {
+    th.addEventListener("click", function () {
+      closeEditor();
+      var k = th.dataset.sort;
+      var dir = th.classList.contains("sort-asc") ? -1 : 1;
+      table.querySelectorAll("th.uom-sortable").forEach(function (o) { o.classList.remove("sort-asc", "sort-desc"); });
+      th.classList.add(dir === 1 ? "sort-asc" : "sort-desc");
+      rows.sort(function (a, b) {
+        var va = val(a, k), vb = val(b, k);
+        if (va < vb) return -1 * dir;
+        if (va > vb) return 1 * dir;
+        return 0;
+      });
+      rows.forEach(function (r) { tbody.appendChild(r); var s = slotFor(r); if (s) tbody.appendChild(s); });
+      resetPage();
+    });
+  });
+
+  rerender();
+
+  // ── Add panel: toggle + live conversion preview ──────────────────
+  var panel = document.getElementById("add-factor-panel");
+  document.querySelectorAll('[data-uom-toggle="add-factor-panel"]').forEach(function (b) {
+    b.addEventListener("click", function () {
+      if (!panel) return;
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) { var fi = panel.querySelector("#uomf-from"); if (fi) fi.focus(); preview(); }
+    });
+  });
+  var fromI = document.getElementById("uomf-from"),
+      toI = document.getElementById("uomf-to"),
+      factorI = document.getElementById("uomf-factor"),
+      prev = document.getElementById("uomf-preview");
+  function preview() {
+    if (!prev) return;
+    var f = fromI && fromI.value.trim(), t = toI && toI.value.trim(), k = factorI && factorI.value.trim();
+    if (f && t && k) { prev.textContent = "1 " + f + " = " + k + " " + t; prev.hidden = false; }
+    else prev.hidden = true;
+  }
+  [fromI, toI, factorI].forEach(function (i) { if (i) i.addEventListener("input", preview); });
+  if (panel && !panel.hidden) {
+    preview();
+    var pf = document.getElementById("uomf-factor");
+    if (pf) pf.focus();
+    panel.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+})();
+</script>
+{% endblock %}

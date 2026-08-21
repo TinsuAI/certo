@@ -1,0 +1,216 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    services:
+      db:
+        # pgvector/pgvector:pg16 ships Postgres 16 + the `vector`
+        # extension (needed by migration 061 — material embeddings).
+        # Plain `postgres:16` lacks the extension and fails on migrate.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: hub
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: data_hub_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hub -d data_hub_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATA_HUB_DATABASE_URL: postgresql://hub:test@localhost:5432/data_hub_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.11"
+      - name: Sync dependencies
+        run: uv sync --frozen
+      - name: Resolve LibreOffice candidate version (cache key)
+        id: libreoffice
+        # azure.archive.ubuntu.com intermittently throttles to ~40 KB/s
+        # (two 18+ min stalls on 2026-07-10, runs 29114048212 and
+        # 29118166424), so the ~150 MB of LibreOffice debs are cached
+        # keyed on the apt candidate version: a hit installs fully
+        # offline, a point release misses and re-seeds. timeout-minutes
+        # makes a throttled-mirror run fail in minutes instead of the
+        # 360-min job default (queued main runs pile up behind a stall).
+        timeout-minutes: 3
+        run: |
+          sudo apt-get update
+          echo "version=$(apt-cache policy libreoffice-calc | awk '/Candidate:/{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache LibreOffice debs
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-debs
+          key: apt-libreoffice-${{ steps.libreoffice.outputs.version }}
+      - name: Install LibreOffice
+        # The declaration merge-PDF feature renders the stored .xls (the
+        # ECUS print form) via LibreOffice headless; the prod image ships
+        # libreoffice-calc, so CI must too or those render tests fail with
+        # "soffice binary not found".
+        timeout-minutes: 5
+        run: |
+          if ls ~/apt-debs/*.deb >/dev/null 2>&1; then
+            sudo cp ~/apt-debs/*.deb /var/cache/apt/archives/
+          fi
+          sudo apt-get install -y --no-install-recommends \
+            libreoffice-calc fonts-liberation fonts-dejavu-core
+          mkdir -p ~/apt-debs
+          sudo cp /var/cache/apt/archives/*.deb ~/apt-debs/
+          sudo chown -R "$USER" ~/apt-debs
+      - name: Run pytest
+        # Two test files need a pre-populated dev DB and don't
+        # self-seed, so they're deselected on clean CI:
+        #  - test_bcct_paging asserts against growatt-vn 3000+ rows
+        #  - test_co_columns::test_backfill_populates_... checks
+        #    migration 010's back-fill of legacy payload rows
+        run: |
+          uv run pytest -q \
+            --ignore=tests/test_bcct_paging.py \
+            --deselect tests/test_co_columns.py::test_backfill_populates_typed_co_columns_from_payload
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Validate compose
+        env:
+          POSTGRES_PASSWORD: ci
+          DATA_HUB_SEED_PASSWORD: ci
+        run: docker compose config -q
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: data-hub:ci
+
+  deploy:
+    name: Deploy to tinsu
+    needs: [test, docker]
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, data-hub-demo]
+    concurrency:
+      group: deploy-tinsu
+      cancel-in-progress: false
+    steps:
+      - name: Pull latest code
+        working-directory: /home/tinsu/data-hub
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+          git log -1 --pretty=format:'deployed %h %s'
+
+      - name: Compose up (build + recreate)
+        working-directory: /home/tinsu/data-hub
+        run: |
+          export DATA_HUB_VERSION=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
+          export DATA_HUB_GIT_SHA=$(git rev-parse --short HEAD)
+          export DATA_HUB_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "building v$DATA_HUB_VERSION ($DATA_HUB_GIT_SHA) at $DATA_HUB_BUILD_TIME"
+          docker compose up -d --build
+
+      - name: Wait for /healthz
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8754/healthz || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "healthy after ${i}s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "app did not become healthy in time"
+          docker compose -f /home/tinsu/data-hub/docker-compose.yml logs --tail=80 app
+          exit 1
+
+      - name: Smoke - origin enforces auth (required)
+        # Regression gate for the 2026-06-06 leak: the sister-app API must
+        # reject anonymous callers. (The old smoke here curl'd /v1/hub/dncxs
+        # WITHOUT a token expecting 200 — it relied on the permissive hole
+        # and would now mask a regression. Replaced with anon -> 401.)
+        run: |
+          set -e
+          base=http://127.0.0.1:8754
+          for path in \
+            "/v1/hub/dncxs" \
+            "/v1/hub/clients/johnson-vn/declarations/download.pdf?direction=import&declaration_nos=107271918940" \
+            "/v1/hub/clients/johnson-vn/declarations/download.zip?direction=import&declaration_nos=107271918940"; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$base$path")
+            [ "$code" = "401" ] || { echo "LEAK: expected 401 for $path, got $code"; exit 1; }
+            echo "OK anon->401  $path"
+          done
+          # Authenticated data sanity (best-effort: needs the service-token file).
+          if [ -f /home/tinsu/sister_tokens_2026-06-06.json ]; then
+            tok=$(jq -r '."co-prod" // empty' /home/tinsu/sister_tokens_2026-06-06.json)
+            if [ -n "$tok" ]; then
+              curl -fsS -H "authorization: Bearer $tok" "$base/v1/hub/dncxs" > /tmp/dncxs.json
+              test "$(jq '.items | length' /tmp/dncxs.json)" -ge 1 \
+                && echo "authed /v1/hub/dncxs OK ($(jq '.items | length' /tmp/dncxs.json) items)"
+            fi
+          fi
+
+      - name: Smoke - public surface enforces auth (required)
+        # The incident was a dev-passes / prod-leaks gap, and Cloudflare
+        # caching .pdf/.zip made it worse. This probes the REAL public URL
+        # (through Cloudflare) so a misconfigured deploy or a cached-200
+        # leak fails the deploy fast instead of silently leaking.
+        working-directory: /home/tinsu/data-hub
+        env:
+          DATA_HUB_SMOKE_BASE: https://ttdatahub.tinsu.ai
+          DATA_HUB_SMOKE_CLIENT: johnson-vn
+          DATA_HUB_SMOKE_DECL: "107271918940"
+        run: |
+          if [ -f /home/tinsu/sister_tokens_2026-06-06.json ]; then
+            export DATA_HUB_SMOKE_TOKEN=$(jq -r '."co-prod" // empty' /home/tinsu/sister_tokens_2026-06-06.json)
+          fi
+          uv run python scripts/smoke_public_auth.py
+
+      - name: Smoke LLM /models (best effort)
+        working-directory: /home/tinsu/data-hub
+        continue-on-error: true
+        run: |
+          base=$(docker compose exec -T db psql -U hub -d data_hub -tAc \
+            "select value from hub.app_settings where key='llm_base_url'" \
+            | tr -d ' \r\n')
+          if [ -z "$base" ]; then
+            echo "no llm_base_url configured, skipping LLM smoke"
+            exit 0
+          fi
+          echo "probing $base/models"
+          if curl -fsS --connect-timeout 10 "$base/models" > /dev/null; then
+            echo "LLM /models OK"
+          else
+            echo "LLM /models unreachable (upstream issue) — non-blocking, deploy proceeds"
+          fi
+
+      - name: Refresh nightly stack (Data Hub)
+        continue-on-error: true
+        run: |
+          D=/home/tinsu/tinsu-deploy
+          if [ -d "$D/.git" ]; then
+            git -C "$D" pull --ff-only --quiet || true
+            "$D/scripts/rebuild-app.sh" dh
+          else
+            echo "tinsu-deploy not present; skipping nightly refresh"
+          fi

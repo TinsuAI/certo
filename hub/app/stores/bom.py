@@ -1,0 +1,2001 @@
+"""BOM persistence + proposal-queue auto-rule + flatten materialization."""
+from __future__ import annotations
+
+import hashlib
+import json
+import secrets
+from decimal import Decimal
+from typing import Any, Iterable, Literal
+
+from app.database import connect
+from app.flatten import (
+    FLATTEN_METHOD, FLATTEN_METHOD_VERSION, FlattenResult, FlattenedVersion,
+    build_display_label,
+)
+from app.flatten.types import CatalogEntry, ParsedBom, ParsedRow
+from app.stores import flatten_decisions as decisions_store
+
+
+BomShape = Literal["raw_graph", "manual_flat", "shallow", "full_flat"]
+
+
+def bom_shape(flatten_status: str, flatten_strategy: str) -> BomShape:
+    """Derive the v3 4-shape concept from flatten_status + flatten_strategy.
+
+    - raw_graph: edges-only graph stored in hub.bom_edges (non_flattened).
+    - manual_flat: agency uploaded a flat BOM directly; rows ARE leaves,
+      no walker involved (source artifact, not derived).
+    - shallow: derived — walker stopped at first leaf (BTP or NVL).
+    - full_flat: derived — walker exploded every BTP until every leaf
+      is NVL.
+
+    Lives as a derivation, not a stored column, to avoid schema redundancy
+    with flatten_status + flatten_strategy. Use this helper anywhere the
+    semantic 4-shape framing is clearer than the underlying columns.
+    """
+    if flatten_status == "non_flattened":
+        return "raw_graph"
+    if flatten_strategy == "manual_flat_as_provided":
+        return "manual_flat"
+    if flatten_strategy == "purchased_btp_as_leaf":
+        return "shallow"
+    if flatten_strategy in ("technical_exploded", "self_produced_btp_exploded"):
+        return "full_flat"
+    # mixed_confirmed and no_strategy with status=flattened: treat as shallow
+    # (conservative — leaves may still include BTPs).
+    return "shallow"
+
+
+def is_shallow_flatten(flatten_status: str, flatten_strategy: str) -> bool:
+    """Authoritative shallow/full classification for the `depth` picker filter.
+
+    Shallow == a flat artifact whose leaves may still include in-house BTPs
+    (partial explosion), so it is structurally incomplete for a certificate
+    of origin. Single-sourced with bom_shape() — shallow iff bom_shape()
+    reports 'shallow' — so the depth semantics can never drift from the
+    4-shape model. Concretely the shallow strategies are:
+      - purchased_btp_as_leaf  (every dual-source BTP kept as a leaf)
+      - mixed_confirmed / no_strategy  (conservative: leaves may include BTPs)
+    Full (NOT shallow): technical_exploded, self_produced_btp_exploded.
+    Leaf-complete-by-assertion (NEVER shallow): manual_flat_as_provided
+    (agency-provided and customs-declared "Mẫu 16" flats), and any
+    flatten_status='not_applicable' artifact.
+    """
+    if flatten_status == "not_applicable":
+        return False
+    return bom_shape(flatten_status, flatten_strategy) == "shallow"
+
+
+def normalized_hash(rows: list[dict]) -> str:
+    """Canonicalize BOM rows for idempotency: sort by (material_code, bom_variant_id),
+    round qty to 9 decimals, NFC-trim text, exclude row_index."""
+    canonical = []
+    for r in sorted(rows, key=lambda r: (str(r.get("material_code", "")),
+                                          str(r.get("bom_variant_id") or ""))):
+        canonical.append({
+            "material_code": (r.get("material_code") or "").strip(),
+            "bom_code": (r.get("bom_code") or "") or None,
+            "bom_variant_id": (r.get("bom_variant_id") or "") or None,
+            "qty_per_unit": round(float(r.get("qty_per_unit") or 0), 9),
+            "uom": (r.get("uom") or "") or None,
+        })
+    blob = json.dumps(canonical, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
+def normalized_edges_hash(edges: list[dict]) -> str:
+    canonical = []
+    for e in sorted(
+        edges,
+        key=lambda e: (
+            str(e.get("root_code", "")),
+            str(e.get("parent_code", "")),
+            str(e.get("child_code", "")),
+            int(e.get("row_index") or 0),
+        ),
+    ):
+        canonical.append({
+            "root_code": (e.get("root_code") or "").strip(),
+            "parent_code": (e.get("parent_code") or "").strip(),
+            "child_code": (e.get("child_code") or "").strip(),
+            "qty_per_parent": round(float(e.get("qty_per_parent") or 0), 9),
+            "uom": (e.get("uom") or "") or None,
+            "level": e.get("level"),
+            "node_path": (e.get("node_path") or "") or None,
+            "sheet_name": (e.get("sheet_name") or "") or None,
+            "source_row_no": e.get("source_row_no"),
+        })
+    blob = json.dumps(canonical, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
+def _next_artifact_no(cur, *, client_id: str, product_code: str) -> int:
+    cur.execute(
+        """
+        select coalesce(max(artifact_no), 0) + 1
+        from hub.bom_artifacts
+        where client_id = %s and product_code = %s
+        """,
+        (client_id, product_code),
+    )
+    (n,) = cur.fetchone()
+    return n
+
+
+def create_raw_artifact(*, client_id: str, product_code: str, edges: list[dict],
+                       actor: str, intent: str,
+                       parent_artifact_id: str | None,
+                       context: dict, source_upload_id: str | None,
+                       source_channel: str = "agency_upload",
+                       bom_code: str | None = None,
+                       bom_variant_id: str | None = None,
+                       lineage: dict | None = None,
+                       display_label: str | None = None,
+                       cursor=None,
+                       ) -> str | None:
+    """Append a technical_raw BOM version backed by hub.bom_edges.
+
+    Raw versions intentionally do not write hub.bom_artifact_rows; consumers
+    should use a derived technical_flattened/staff_flat version for flat rows.
+    """
+    if cursor is not None:
+        return _create_raw_artifact_inner(
+            cursor,
+            client_id=client_id, product_code=product_code, edges=edges,
+            actor=actor, intent=intent, parent_artifact_id=parent_artifact_id,
+            context=context, source_upload_id=source_upload_id,
+            source_channel=source_channel, bom_code=bom_code,
+            bom_variant_id=bom_variant_id, lineage=lineage,
+            display_label=display_label,
+        )
+    with connect() as conn:
+        with conn.cursor() as cur:
+            return _create_raw_artifact_inner(
+                cur,
+                client_id=client_id, product_code=product_code, edges=edges,
+                actor=actor, intent=intent, parent_artifact_id=parent_artifact_id,
+                context=context, source_upload_id=source_upload_id,
+                source_channel=source_channel, bom_code=bom_code,
+                bom_variant_id=bom_variant_id, lineage=lineage,
+                display_label=display_label,
+            )
+
+
+def _create_raw_artifact_inner(cur, *, client_id, product_code, edges,
+                              actor, intent, parent_artifact_id, context,
+                              source_upload_id, source_channel, bom_code,
+                              bom_variant_id, lineage, display_label):
+    if not edges:
+        from app.parsers.bom_adapters import BomParseError
+        raise BomParseError("Raw BOM requires at least one edge")
+    bad_qty = [
+        (i, e.get("parent_code"), e.get("child_code"), e.get("qty_per_parent"))
+        for i, e in enumerate(edges)
+        if e.get("qty_per_parent") is None or float(e.get("qty_per_parent") or 0) <= 0
+    ]
+    if bad_qty:
+        from app.parsers.bom_adapters import BomParseError
+        sample = ", ".join(
+            f"row {i} ({p!r}->{c!r})={q!r}"
+            for i, p, c, q in bad_qty[:5]
+        )
+        raise BomParseError(
+            f"Raw BOM has {len(bad_qty)} edge(s) with qty_per_parent <= 0. "
+            f"First few: {sample}",
+        )
+
+    nh = normalized_edges_hash(edges)
+    artifact_id = "ba_" + secrets.token_urlsafe(12)
+    bom_code_norm = bom_code or ""
+    bom_variant_id_norm = bom_variant_id or "default"
+    parent_norm = parent_artifact_id or "00000000-0000-0000-0000-000000000000"
+    flatten_strategy = "no_strategy"
+    cur.execute(
+        """
+        select artifact_id from hub.bom_artifacts
+        where client_id=%s and product_code=%s and actor=%s and intent=%s
+          and parent_norm=%s and normalized_hash=%s
+          and coalesce(flatten_strategy,'') = %s
+          and coalesce(bom_variant_id,'default') = %s
+        """,
+        (client_id, product_code, actor, intent, parent_norm, nh,
+         flatten_strategy, bom_variant_id_norm),
+    )
+    existing = cur.fetchone()
+    if existing:
+        return existing[0]
+
+    artifact_no = _next_artifact_no_for_variant(
+        cur, client_id=client_id, product_code=product_code,
+        bom_variant_id=bom_variant_id_norm,
+    )
+    label = display_label or build_display_label(
+        product_code=product_code,
+        bom_variant_id=bom_variant_id_norm,
+        artifact_no=artifact_no,
+        source_bom_kind="technical_raw",
+        flatten_status="non_flattened",
+        flatten_strategy=flatten_strategy,
+    )
+    cur.execute(
+        """
+        insert into hub.bom_artifacts
+          (artifact_id, client_id, product_code, artifact_no, actor, intent,
+           parent_artifact_id, context, source_upload_id, normalized_hash,
+           row_count, status, published_at,
+           source_bom_kind, flatten_status, flatten_strategy,
+           source_channel, bom_code, bom_variant_id, lineage,
+           display_label, flatten_method, flatten_method_version)
+        values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s,
+                'published', now(),
+                'technical_raw', 'non_flattened', %s,
+                %s, %s, %s, %s::jsonb,
+                %s, 'none', '0')
+        """,
+        (artifact_id, client_id, product_code, artifact_no, actor, intent,
+         parent_artifact_id, json.dumps(context), source_upload_id, nh, len(edges),
+         flatten_strategy, source_channel, bom_code_norm or None,
+         bom_variant_id_norm,
+         json.dumps(lineage or {}, ensure_ascii=False, default=str), label),
+    )
+    for i, e in enumerate(edges):
+        payload = dict(e.get("payload") or {})
+        cur.execute(
+            """
+            insert into hub.bom_edges
+              (artifact_id, row_index, root_code, parent_code, child_code,
+               qty_per_parent, uom, level, node_path, sheet_name,
+               source_row_no, payload)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+            """,
+            (
+                artifact_id, int(e.get("row_index") if e.get("row_index") is not None else i),
+                e["root_code"], e["parent_code"], e["child_code"],
+                e["qty_per_parent"], e.get("uom"), e.get("level"),
+                e.get("node_path"), e.get("sheet_name"), e.get("source_row_no"),
+                json.dumps(payload, ensure_ascii=False, default=str),
+            ),
+        )
+    cur.execute(
+        """
+        insert into hub.bom_audit_events
+          (client_id, product_code, artifact_id, event_type, actor, details)
+        values (%s, %s, %s, 'version.created', %s, %s::jsonb)
+        """,
+        (client_id, product_code, artifact_id, actor,
+         json.dumps({"intent": intent,
+                     "source_bom_kind": "technical_raw",
+                     "flatten_status": "non_flattened",
+                     "flatten_strategy": flatten_strategy})),
+    )
+    return artifact_id
+
+
+def create_artifact(*, client_id: str, product_code: str, rows: list[dict],
+                   actor: str, intent: str, parent_artifact_id: str | None,
+                   context: dict, source_upload_id: str | None,
+                   # Flatten/identity fields — defaults preserve manual_flat
+                   # backward compat. Caller (create_flattened_artifact_set)
+                   # overrides these for technical_flatten.
+                   source_bom_kind: str = "manual_flat",
+                   flatten_status: str = "not_applicable",
+                   flatten_strategy: str = "manual_flat_as_provided",
+                   source_channel: str = "agency_upload",
+                   bom_code: str | None = None,
+                   bom_variant_id: str | None = None,
+                   lineage: dict | None = None,
+                   flatten_method: str = "none",
+                   flatten_method_version: str = "0",
+                   display_label: str | None = None,
+                   human_label: str | None = None,
+                   # /rev finding C1: optional cursor for transactional
+                   # composition with create_flattened_artifact_set.
+                   cursor=None,
+                   ) -> str | None:
+    """Append a new BOM version. Idempotent on the constraint key.
+    Returns artifact_id (or existing one if duplicate).
+
+    If `cursor` is provided, runs SQL ops on it without managing the
+    connection lifecycle — caller (create_flattened_artifact_set) is
+    responsible for transaction boundaries. Otherwise opens a fresh
+    connection + transaction.
+    """
+    if cursor is not None:
+        return _create_artifact_inner(
+            cursor,
+            client_id=client_id, product_code=product_code, rows=rows,
+            actor=actor, intent=intent, parent_artifact_id=parent_artifact_id,
+            context=context, source_upload_id=source_upload_id,
+            source_bom_kind=source_bom_kind, flatten_status=flatten_status,
+            flatten_strategy=flatten_strategy, source_channel=source_channel,
+            bom_code=bom_code, bom_variant_id=bom_variant_id,
+            lineage=lineage, flatten_method=flatten_method,
+            flatten_method_version=flatten_method_version,
+            display_label=display_label, human_label=human_label,
+        )
+    with connect() as conn:
+        with conn.cursor() as cur:
+            return _create_artifact_inner(
+                cur,
+                client_id=client_id, product_code=product_code, rows=rows,
+                actor=actor, intent=intent, parent_artifact_id=parent_artifact_id,
+                context=context, source_upload_id=source_upload_id,
+                source_bom_kind=source_bom_kind, flatten_status=flatten_status,
+                flatten_strategy=flatten_strategy, source_channel=source_channel,
+                bom_code=bom_code, bom_variant_id=bom_variant_id,
+                lineage=lineage, flatten_method=flatten_method,
+                flatten_method_version=flatten_method_version,
+                display_label=display_label, human_label=human_label,
+            )
+
+
+def _create_artifact_inner(cur, *, client_id, product_code, rows, actor, intent,
+                          parent_artifact_id, context, source_upload_id,
+                          source_bom_kind, flatten_status, flatten_strategy,
+                          source_channel, bom_code, bom_variant_id, lineage,
+                          flatten_method, flatten_method_version, display_label,
+                          human_label=None):
+    nh = normalized_hash(rows)
+    artifact_id = "ba_" + secrets.token_urlsafe(12)
+    bom_code_norm = bom_code or ""
+    bom_variant_id_norm = bom_variant_id or "default"
+    parent_norm = parent_artifact_id or "00000000-0000-0000-0000-000000000000"
+    cur.execute(
+        """
+        select artifact_id from hub.bom_artifacts
+        where client_id=%s and product_code=%s and actor=%s and intent=%s
+          and parent_norm=%s and normalized_hash=%s
+          and coalesce(flatten_strategy,'') = %s
+          and coalesce(bom_variant_id,'default') = %s
+        """,
+        (client_id, product_code, actor, intent, parent_norm, nh,
+         flatten_strategy, bom_variant_id_norm),
+    )
+    existing = cur.fetchone()
+    if existing:
+        return existing[0]
+    artifact_no = _next_artifact_no_for_variant(
+        cur, client_id=client_id, product_code=product_code,
+        bom_variant_id=bom_variant_id_norm,
+    )
+    label = display_label or build_display_label(
+        product_code=product_code,
+        bom_variant_id=bom_variant_id_norm,
+        artifact_no=artifact_no,
+        source_bom_kind=source_bom_kind,
+        flatten_status=flatten_status,
+        flatten_strategy=flatten_strategy,
+    )
+    cur.execute(
+        """
+        insert into hub.bom_artifacts
+          (artifact_id, client_id, product_code, artifact_no, actor, intent,
+           parent_artifact_id, context, source_upload_id, normalized_hash,
+           row_count, status, published_at,
+           source_bom_kind, flatten_status, flatten_strategy,
+           source_channel, bom_code, bom_variant_id, lineage,
+           display_label, flatten_method, flatten_method_version, human_label)
+        values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s,
+                'published', now(),
+                %s, %s, %s, %s, %s, %s, %s::jsonb,
+                %s, %s, %s, %s)
+        """,
+        (artifact_id, client_id, product_code, artifact_no, actor, intent,
+         parent_artifact_id, json.dumps(context), source_upload_id, nh, len(rows),
+         source_bom_kind, flatten_status, flatten_strategy,
+         source_channel, bom_code_norm or None, bom_variant_id_norm,
+         json.dumps(lineage or {}, ensure_ascii=False, default=str),
+         label, flatten_method, flatten_method_version, human_label),
+    )
+    # Belt-and-suspenders qty validation. DB has chk_qty_per_unit_positive
+    # (migration 026) so the INSERT would error anyway, but pre-validating
+    # here surfaces a precise message ("row N: material X qty=...") instead
+    # of a generic constraint-violation rollback the user has to puzzle out.
+    bad_qty = [
+        (i, r.get("material_code"), r.get("qty_per_unit"))
+        for i, r in enumerate(rows)
+        if r.get("qty_per_unit") is None or float(r.get("qty_per_unit") or 0) <= 0
+    ]
+    if bad_qty:
+        from app.parsers.bom_adapters import BomParseError
+        sample = ", ".join(f"row {i} ({mat!r})={q!r}" for i, mat, q in bad_qty[:5])
+        raise BomParseError(
+            f"BOM has {len(bad_qty)} row(s) with qty_per_unit <= 0 or NULL. "
+            f"Fix the source workbook or remove these rows. First few: {sample}",
+        )
+
+    typed_keys = {
+        "material_code", "bom_code", "bom_variant_id",
+        "qty_per_unit", "uom",
+        # Phase 2 mig 056 — UoM audit columns:
+        "source_uom", "applied_uom_factor", "applied_uom_source",
+    }
+    for i, r in enumerate(rows):
+        cur.execute(
+            """
+            insert into hub.bom_artifact_rows
+              (artifact_id, row_index, material_code, bom_code, bom_variant_id,
+               qty_per_unit, uom,
+               source_uom, applied_uom_factor, applied_uom_source,
+               payload)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+            """,
+            (artifact_id, i, r["material_code"],
+             r.get("bom_code"), r.get("bom_variant_id"),
+             r["qty_per_unit"], r.get("uom"),
+             r.get("source_uom"),
+             r.get("applied_uom_factor"),
+             r.get("applied_uom_source"),
+             json.dumps({k: v for k, v in r.items()
+                         if k not in typed_keys},
+                        default=str)),
+        )
+    cur.execute(
+        """
+        insert into hub.bom_audit_events (client_id, product_code, artifact_id, event_type, actor, details)
+        values (%s, %s, %s, 'version.created', %s, %s::jsonb)
+        """,
+        (client_id, product_code, artifact_id, actor,
+         json.dumps({"intent": intent,
+                     "source_bom_kind": source_bom_kind,
+                     "flatten_status": flatten_status,
+                     "flatten_strategy": flatten_strategy})),
+    )
+    return artifact_id
+
+
+_PARENT_SENTINEL = "00000000-0000-0000-0000-000000000000"
+
+
+def tombstone_bom_version(*, client_id: str, artifact_id: str, reason: str,
+                          actor: str) -> dict:
+    """Soft-retract a wrongly-stored BOM version (never DELETE — BOM
+    immutable principle). Resolves the version root (a derived shape's
+    raw_graph parent, else the artifact itself) and tombstones the root
+    PLUS its derived children (shallow/full_flat via parent_artifact_id),
+    so a single action leaves no orphaned shapes. Writes one
+    `version.tombstoned` audit row per artifact. Idempotent: already-
+    tombstoned targets are skipped.
+
+    Returns {"count", "ids", "product_code", "root", "already"}.
+    """
+    with connect(user_id=actor) as conn, conn.cursor() as cur:
+        cur.execute(
+            "select product_code, source_bom_kind, parent_artifact_id, "
+            "tombstoned_at from hub.bom_artifacts "
+            "where artifact_id=%s and client_id=%s",
+            (artifact_id, client_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise LookupError("artifact not found")
+        product_code, _kind, parent, tombstoned_at = row
+        if tombstoned_at is not None:
+            return {"count": 0, "ids": [], "product_code": product_code,
+                    "root": artifact_id, "already": True}
+        # Resolve the version root: if this is a derived shape pointing at a
+        # live parent, retract from the parent so siblings go too.
+        root = artifact_id
+        if parent and parent != _PARENT_SENTINEL:
+            cur.execute(
+                "select artifact_id from hub.bom_artifacts "
+                "where artifact_id=%s and client_id=%s and tombstoned_at is null",
+                (parent, client_id),
+            )
+            p = cur.fetchone()
+            if p:
+                root = p[0]
+        cur.execute(
+            "select artifact_id, product_code from hub.bom_artifacts "
+            "where client_id=%s and tombstoned_at is null "
+            "and (artifact_id=%s or parent_artifact_id=%s)",
+            (client_id, root, root),
+        )
+        targets = cur.fetchall()
+        ids = [t[0] for t in targets]
+        if not ids:
+            return {"count": 0, "ids": [], "product_code": product_code,
+                    "root": root, "already": True}
+        cur.execute(
+            "update hub.bom_artifacts set tombstoned_at=now(), "
+            "tombstone_reason=%s where artifact_id = any(%s)",
+            (reason, ids),
+        )
+        for tid, pcode in targets:
+            cur.execute(
+                "insert into hub.bom_audit_events "
+                "(client_id, product_code, artifact_id, event_type, actor, details) "
+                "values (%s, %s, %s, 'version.tombstoned', %s, %s::jsonb)",
+                (client_id, pcode, tid, actor,
+                 json.dumps({"reason": reason, "via": artifact_id,
+                             "root": root})),
+            )
+    return {"count": len(ids), "ids": ids, "product_code": product_code,
+            "root": root, "already": False}
+
+
+def _next_artifact_no_for_variant(cur, *, client_id: str, product_code: str,
+                                 bom_variant_id: str) -> int:
+    """Variant-scoped artifact_no — spec §3A: 'artifact_no must not mix
+    unrelated variants. If bom_variant_id creates a distinct variant,
+    artifact_no must be scoped to that variant key.'"""
+    cur.execute(
+        """
+        select coalesce(max(artifact_no), 0) + 1
+        from hub.bom_artifacts
+        where client_id = %s and product_code = %s
+          and coalesce(bom_variant_id, 'default') = %s
+        """,
+        (client_id, product_code, bom_variant_id),
+    )
+    (n,) = cur.fetchone()
+    return n
+
+
+_BOM_PRODUCTS_ORDER_DEFAULT = (
+    "a.n_non_flattened desc, a.last_published desc nulls last"
+)
+
+
+def list_products_with_bom(client_id: str, *,
+                           q: str | None = None,
+                           kind: str | None = None,
+                           order_by: str = _BOM_PRODUCTS_ORDER_DEFAULT,
+                           limit: int = 50, offset: int = 0) -> list[dict]:
+    """List BOM products plus flatten-aware metadata per product.
+
+    Per-product fields:
+      n_artifacts:          total alive artifacts (any flatten_status).
+      n_logical_versions:   count of distinct lineage_root_id — each is
+                            one logical "phiên bản BOM" per glossary
+                            tuple (client, product, variant, root).
+      n_flattened:          count where flatten_status in (flattened, not_applicable).
+      n_non_flattened:      count where flatten_status = non_flattened.
+      n_strategies:         count of distinct flatten_strategy values among
+                            flattened artifacts — typical "1 phiên bản"
+                            yields 2 (shallow + full_flat). >2 ⇒ supplier
+                            dual-source materializations live.
+      latest_artifact_no:   max artifact_no across all artifacts.
+      last_published:       most recent published_at.
+      latest_flatten_status: status of the most-recently-published artifact.
+      product_kind:         'btp' if hub.materials.category in (btp_sx,btp_nm),
+                            else 'tp'. Falls back to 'tp' when no catalog entry.
+
+    Backwards-compatible aliases kept for callers that still read the
+    old keys: `n_versions` (= n_artifacts), `latest_version`
+    (= latest_artifact_no). Drop once consumers migrate.
+
+    Used by bom.html for status badges + the All/Flattened/Non-flattened filter.
+
+    `q` filters by product_code substring (ILIKE). `order_by`,
+    `limit`, `offset` drive pagination + caller-chosen sort.
+    """
+    where_q = ""
+    params_q: list = []
+    if q:
+        # `q` matches the finished-product code OR any component code in
+        # the product's BOM — material_code in flat rows (manual_flat /
+        # flattened) or child_code in raw graph edges (technical_raw).
+        pat = f"%{q}%"
+        where_q = (
+            " and (ba.product_code ilike %s"
+            " or exists (select 1 from hub.bom_artifact_rows r"
+            " where r.artifact_id = ba.artifact_id and r.material_code ilike %s)"
+            " or exists (select 1 from hub.bom_edges e"
+            " where e.artifact_id = ba.artifact_id and e.child_code ilike %s))"
+        )
+        params_q = [pat, pat, pat]
+    if kind == "tp":
+        where_kind = (
+            " and (m_kind.category is null or m_kind.category not in ('btp_sx','btp_nm'))"
+        )
+    elif kind == "btp":
+        where_kind = " and m_kind.category in ('btp_sx','btp_nm')"
+    else:
+        where_kind = ""
+    sql = f"""
+        with v as (
+            select ba.product_code, ba.artifact_no, ba.published_at, ba.flatten_status,
+                   ba.flatten_strategy, ba.lineage_root_id, ba.is_stale,
+                   row_number() over (
+                       partition by ba.product_code
+                       order by ba.published_at desc nulls last, ba.artifact_no desc
+                   ) as rn
+            from hub.bom_artifacts ba
+            left join hub.materials m_kind
+                   on m_kind.client_id = %s and m_kind.material_code = ba.product_code
+            where ba.client_id = %s and ba.tombstoned_at is null{where_q}{where_kind}
+        ),
+        aggr as (
+            select product_code,
+                   count(*) as n_artifacts,
+                   count(distinct lineage_root_id) as n_logical_versions,
+                   count(*) filter (where flatten_status in ('flattened','not_applicable')) as n_flattened,
+                   count(*) filter (where flatten_status = 'non_flattened') as n_non_flattened,
+                   count(distinct flatten_strategy) filter (where flatten_status = 'flattened') as n_strategies,
+                   count(*) filter (where is_stale) as n_stale,
+                   max(artifact_no) as latest_artifact_no,
+                   max(published_at) as last_published
+            from v group by product_code
+        )
+        select a.product_code, a.n_artifacts, a.n_logical_versions,
+               a.n_flattened, a.n_non_flattened, a.n_strategies, a.n_stale,
+               a.latest_artifact_no, a.last_published,
+               latest.flatten_status as latest_flatten_status,
+               coalesce(m.category, 'tp') as raw_category
+        from aggr a
+        left join v latest on latest.product_code = a.product_code and latest.rn = 1
+        left join hub.materials m
+               on m.client_id = %s and m.material_code = a.product_code
+        order by {order_by}
+        limit %s offset %s
+    """
+    params = [client_id, client_id, *params_q, client_id, limit, offset]
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            cols = [d[0] for d in cur.description]
+            out = []
+            for r in cur.fetchall():
+                d = dict(zip(cols, r))
+                # Catalog says BTP iff category in btp_*; otherwise treat as TP.
+                d["product_kind"] = "btp" if d.pop("raw_category") in ("btp_sx", "btp_nm") else "tp"
+                # Compat aliases for templates not yet migrated.
+                d["n_versions"] = d["n_artifacts"]
+                d["latest_version"] = d["latest_artifact_no"]
+                out.append(d)
+            return out
+
+
+def count_products_with_bom(client_id: str, *, q: str | None = None,
+                            kind: str | None = None) -> int:
+    """Count distinct BOM products matching the same filter shape as
+    `list_products_with_bom`."""
+    where_q = ""
+    params: list = [client_id, client_id]
+    if q:
+        # Mirror list_products_with_bom: match product code or any
+        # component code (flat rows or raw graph edges) in the BOM.
+        pat = f"%{q}%"
+        where_q = (
+            " and (ba.product_code ilike %s"
+            " or exists (select 1 from hub.bom_artifact_rows r"
+            " where r.artifact_id = ba.artifact_id and r.material_code ilike %s)"
+            " or exists (select 1 from hub.bom_edges e"
+            " where e.artifact_id = ba.artifact_id and e.child_code ilike %s))"
+        )
+        params.extend([pat, pat, pat])
+    if kind == "tp":
+        where_kind = (
+            " and (m_kind.category is null or m_kind.category not in ('btp_sx','btp_nm'))"
+        )
+    elif kind == "btp":
+        where_kind = " and m_kind.category in ('btp_sx','btp_nm')"
+    else:
+        where_kind = ""
+    sql = f"""
+        select count(distinct ba.product_code)
+        from hub.bom_artifacts ba
+        left join hub.materials m_kind
+               on m_kind.client_id = %s and m_kind.material_code = ba.product_code
+        where ba.client_id = %s and ba.tombstoned_at is null{where_q}{where_kind}
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            (n,) = cur.fetchone()
+    return n
+
+
+def company_bom_summary(client_id: str) -> dict:
+    """Company-level BOM aggregates for the source-summary `bom` block.
+
+    Consumed by sister apps (CO) to render a per-company BOM overview.
+    All counts are over alive (non-tombstoned) artifacts.
+
+    Headline (CO readiness — over distinct BCCT export `customs_code`s,
+    the population CO issues C/O for; independent of catalog category):
+      exported_total:       distinct export customs_codes.
+      exported_with_bom:    those that have a BOM keyed to the same code.
+      exported_without_bom: those with NO BOM (the C/O readiness gap).
+      These three are exact-`customs_code` matches → blind to NB codes
+      living inside goods_name parens (see backlog A.5). Treat as a close
+      approximation, not an absolute count.
+
+    Secondary:
+      product_count:       distinct codes (any kind) with a BOM rooted at
+                           them — TP finished products PLUS BTP
+                           sub-assemblies (Johnson derives a BOM per
+                           intermediate BTP). An internal BOM-coverage
+                           metric, NOT a finished-product count.
+      stale_count:         # products with >=1 is_stale artifact (Track D)
+                           — BOM may be out of date.
+      multi_version_count: # products with >1 distinct lineage_root_id
+                           (more than one logical BOM version).
+      last_published_at:   max(published_at) across alive artifacts, or None.
+    """
+    summary_sql = """
+        with prod as (
+            select ba.product_code,
+                   bool_or(ba.is_stale) as any_stale,
+                   count(distinct ba.lineage_root_id) as n_logical,
+                   max(ba.published_at) as last_pub
+            from hub.bom_artifacts ba
+            where ba.client_id = %s and ba.tombstoned_at is null
+            group by ba.product_code
+        )
+        select
+            count(*) as product_count,
+            count(*) filter (where any_stale) as stale_count,
+            count(*) filter (where n_logical > 1) as multi_version_count,
+            max(last_pub) as last_published_at
+        from prod
+    """
+    exported_sql = """
+        select
+            count(*) as exported_total,
+            count(*) filter (where exists (
+                select 1 from hub.bom_artifacts ba
+                where ba.client_id = %s and ba.tombstoned_at is null
+                  and ba.product_code = e.customs_code
+            )) as exported_with_bom
+        from (
+            select distinct customs_code
+            from hub.bcct_rows
+            where client_id = %s and direction = 'export'
+              and customs_code is not null and customs_code <> ''
+        ) e
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(summary_sql, (client_id,))
+            cols = [d[0] for d in cur.description]
+            row = dict(zip(cols, cur.fetchone()))
+            cur.execute(exported_sql, (client_id, client_id))
+            exported_total, exported_with_bom = cur.fetchone()
+    exported_total = int(exported_total or 0)
+    exported_with_bom = int(exported_with_bom or 0)
+    return {
+        "exported_with_bom": exported_with_bom,
+        "exported_without_bom": exported_total - exported_with_bom,
+        "exported_total": exported_total,
+        "product_count": int(row["product_count"] or 0),
+        "stale_count": int(row["stale_count"] or 0),
+        "multi_version_count": int(row["multi_version_count"] or 0),
+        "last_published_at": row["last_published_at"],
+    }
+
+
+def list_artifacts_for_products(*, client_id: str,
+                                product_codes: list[str]) -> dict[str, list[dict]]:
+    """Fan-in sibling of list_artifacts_for_product: artifact history for
+    many products in ONE query (product_code = ANY), returned as
+    {product_code: [artifact, ...]}.
+
+    Per-product lists are byte-identical (same columns, same order, same
+    bom_shape/parent_shape enrichment) to list_artifacts_for_product, so the
+    /v1/hub batch endpoint stays in parity with the per-product endpoint.
+    `product_code` is selected only for grouping and is popped from each item,
+    matching the per-product item shape exactly. Only product_codes with at
+    least one artifact appear as keys.
+    """
+    if not product_codes:
+        return {}
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select v.product_code,
+                       v.artifact_id, v.artifact_no, v.actor, v.intent, v.parent_artifact_id,
+                       v.row_count, v.normalized_hash, v.status, v.tombstoned_at,
+                       v.created_at, v.published_at, v.context,
+                       v.bom_variant_id, v.source_bom_kind, v.source_channel,
+                       v.flatten_status, v.flatten_strategy,
+                       v.is_stale, v.stale_reasons,
+                       v.has_uom_drift, v.uom_drift_reasons,
+                       v.state,
+                       v.human_label, v.display_label,
+                       p.artifact_no       as parent_artifact_no,
+                       p.bom_variant_id   as parent_variant_id,
+                       p.flatten_status   as parent_flatten_status,
+                       p.flatten_strategy as parent_flatten_strategy
+                from hub.bom_artifacts v
+                left join hub.bom_artifacts p on p.artifact_id = v.parent_artifact_id
+                where v.client_id = %s and v.product_code = any(%s)
+                order by v.product_code, v.created_at desc, v.artifact_no desc
+                """,
+                (client_id, list(product_codes)),
+            )
+            cols = [d[0] for d in cur.description]
+            out: dict[str, list[dict]] = {}
+            for r in cur.fetchall():
+                row = dict(zip(cols, r))
+                pc = row.pop("product_code")
+                row["bom_shape"] = bom_shape(
+                    row.get("flatten_status") or "",
+                    row.get("flatten_strategy") or "",
+                )
+                row["is_shallow"] = is_shallow_flatten(
+                    row.get("flatten_status") or "",
+                    row.get("flatten_strategy") or "",
+                )
+                if row.get("parent_artifact_id"):
+                    row["parent_shape"] = bom_shape(
+                        row.get("parent_flatten_status") or "",
+                        row.get("parent_flatten_strategy") or "",
+                    )
+                else:
+                    row["parent_shape"] = None
+                out.setdefault(pc, []).append(row)
+            return out
+
+
+def list_artifacts_for_product(*, client_id: str, product_code: str) -> list[dict]:
+    """Single-product artifact history. Thin wrapper over
+    list_artifacts_for_products so the SQL + item shape are single-sourced."""
+    return list_artifacts_for_products(
+        client_id=client_id, product_codes=[product_code],
+    ).get(product_code, [])
+
+
+# The full single-artifact column set. Shared by get_artifact_with_rows and
+# list_artifact_meta_for_products so the single-artifact GET and the batch
+# items[*] artifact shape can never drift (the ARTIFACT FIELD PARITY contract
+# CO depends on — client_id, lineage, flatten_method[_version], stale_*/
+# uom_drift_* timestamps must be present on both paths).
+_ARTIFACT_META_COLS = (
+    "artifact_id, client_id, product_code, artifact_no, actor, intent, "
+    "parent_artifact_id, context, normalized_hash, row_count, "
+    "status, tombstoned_at, tombstone_reason, created_at, published_at, "
+    "source_bom_kind, flatten_status, flatten_strategy, "
+    "source_channel, bom_code, bom_variant_id, lineage, "
+    "display_label, human_label, flatten_method, flatten_method_version, "
+    "is_stale, stale_reasons, stale_first_at, stale_resolved_at, "
+    "has_uom_drift, uom_drift_reasons, "
+    "uom_drift_first_at, uom_drift_resolved_at, "
+    "state"
+)
+
+
+def list_artifact_meta_for_products(*, client_id: str,
+                                    product_codes: list[str]) -> dict[str, list[dict]]:
+    """Fan-in of the SINGLE-artifact `artifact` shape for many products in
+    ONE query. Returns {product_code: [artifact_meta, ...]}.
+
+    Distinct from list_artifacts_for_products (the lighter LIST-summary shape
+    behind GET /bom/artifacts): this carries the full diagnostic/freshness
+    metadata so the batch endpoint's items are field-for-field identical to
+    the single-artifact GET. Shares _ARTIFACT_META_COLS with
+    get_artifact_with_rows. Ordered (created_at desc, artifact_no desc) per
+    product to match list_artifacts_for_product's filter-input order, so the
+    same _apply_bom_artifact_filters chain yields the same artifacts in the
+    same order on both the per-product and batch paths.
+    """
+    if not product_codes:
+        return {}
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select {_ARTIFACT_META_COLS}
+                from hub.bom_artifacts
+                where client_id = %s and product_code = any(%s)
+                order by product_code, created_at desc, artifact_no desc
+                """,
+                (client_id, list(product_codes)),
+            )
+            cols = [d[0] for d in cur.description]
+            out: dict[str, list[dict]] = {}
+            for r in cur.fetchall():
+                row = dict(zip(cols, r))
+                row["is_shallow"] = is_shallow_flatten(
+                    row.get("flatten_status") or "",
+                    row.get("flatten_strategy") or "",
+                )
+                out.setdefault(row["product_code"], []).append(row)
+            return out
+
+
+def get_artifact_with_rows(
+    artifact_id: str, *, exclude_non_declarable: bool = False,
+) -> dict | None:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"select {_ARTIFACT_META_COLS} from hub.bom_artifacts "
+                "where artifact_id = %s",
+                (artifact_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cols = [d[0] for d in cur.description]
+            artifact = dict(zip(cols, row))
+            artifact["is_shallow"] = is_shallow_flatten(
+                artifact.get("flatten_status") or "",
+                artifact.get("flatten_strategy") or "",
+            )
+            # `exclude_non_declarable` drops rows soft-excluded as
+            # non-declarable ("rác": drawing/document/label/phantom — mig 078).
+            # Default off so existing consumers see every row unchanged.
+            excl_clause = (" and excluded_at is null"
+                           if exclude_non_declarable else "")
+            cur.execute(
+                f"""
+                select row_index, material_code, bom_code, bom_variant_id,
+                       qty_per_unit, uom, payload, excluded_at, exclusion_reason
+                from hub.bom_artifact_rows where artifact_id = %s{excl_clause}
+                order by row_index
+                """,
+                (artifact_id,),
+            )
+            cols2 = [d[0] for d in cur.description]
+            rows = [dict(zip(cols2, r)) for r in cur.fetchall()]
+            cur.execute(
+                """
+                select row_index, root_code, parent_code, child_code,
+                       qty_per_parent, uom, level, node_path, sheet_name,
+                       source_row_no, payload
+                from hub.bom_edges where artifact_id = %s
+                order by row_index
+                """,
+                (artifact_id,),
+            )
+            cols3 = [d[0] for d in cur.description]
+            edges = [dict(zip(cols3, r)) for r in cur.fetchall()]
+            unresolved = get_unresolved_for_version(artifact_id)
+            decisions = get_decisions_for_version(artifact_id)
+            return {
+                "artifact": artifact, "rows": rows, "edges": edges,
+                "unresolved": unresolved, "decisions": decisions,
+            }
+
+
+def get_lineage_for_artifact(artifact_id: str, *, max_depth: int = 12) -> dict:
+    """Return ancestor chain (root → ... → parent) and direct descendants
+    for a given artifact_id. Each node carries human-readable identity:
+    artifact_id, artifact_no, bom_variant_id, shape (derived), intent, actor,
+    status, tombstoned_at, created_at.
+
+    `truncated` flag is set if max_depth was hit before reaching a root —
+    callers can render a "(older ancestors hidden)" marker.
+    `missing_parent_id` is the dangling parent_artifact_id when the chain
+    broke because a parent row was deleted."""
+
+    def _row_to_node(cur, row) -> dict:
+        node = dict(zip([d[0] for d in cur.description], row))
+        node["bom_shape"] = bom_shape(
+            node.get("flatten_status") or "",
+            node.get("flatten_strategy") or "",
+        )
+        return node
+
+    fields = (
+        "artifact_id, artifact_no, bom_variant_id, intent, actor, status, "
+        "tombstoned_at, created_at, parent_artifact_id, "
+        "flatten_status, flatten_strategy"
+    )
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"select {fields} from hub.bom_artifacts where artifact_id = %s",
+                (artifact_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return {"ancestors": [], "descendants": [],
+                        "truncated": False, "missing_parent_id": None}
+            current_node = _row_to_node(cur, row)
+
+            ancestors: list[dict] = []
+            seen: set[str] = {artifact_id}
+            truncated = False
+            missing_parent_id: str | None = None
+            for _ in range(max_depth):
+                parent_id = current_node.get("parent_artifact_id")
+                if not parent_id:
+                    break
+                if parent_id in seen:
+                    break
+                seen.add(parent_id)
+                cur.execute(
+                    f"select {fields} from hub.bom_artifacts where artifact_id = %s",
+                    (parent_id,),
+                )
+                prow = cur.fetchone()
+                if prow is None:
+                    missing_parent_id = parent_id
+                    break
+                parent_node = _row_to_node(cur, prow)
+                ancestors.append(parent_node)
+                current_node = parent_node
+            else:
+                # for-else: ran max_depth iterations without breaking → check
+                # if there's still an unfetched parent above the wall.
+                if current_node.get("parent_artifact_id"):
+                    truncated = True
+            ancestors.reverse()
+
+            cur.execute(
+                f"select {fields} from hub.bom_artifacts where parent_artifact_id = %s "
+                "order by artifact_no desc, created_at desc",
+                (artifact_id,),
+            )
+            descendants = [_row_to_node(cur, r) for r in cur.fetchall()]
+
+            return {"ancestors": ancestors, "descendants": descendants,
+                    "truncated": truncated, "missing_parent_id": missing_parent_id}
+
+
+# ---- Proposal queue ----
+
+PROPOSAL_MODES = ("auto", "manual", "hybrid")
+
+
+class ProposalNotFound(Exception):
+    pass
+
+
+class ProposalNotPending(Exception):
+    """Raised when an action requires status='pending' but the proposal
+    has already been decided or withdrawn."""
+
+
+def proposal_requires_parent_version(*, actor: str, intent: str) -> bool:
+    return actor == "co_system" or intent == "modified_for_case"
+
+
+def validate_proposal_contract(*, actor: str, intent: str,
+                               parent_artifact_id: str | None) -> None:
+    if proposal_requires_parent_version(actor=actor, intent=intent) and not parent_artifact_id:
+        raise ValueError("parent_artifact_id is required for CO modified_for_case proposals")
+
+
+def _client_proposal_mode(client_id: str) -> str:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select bom_proposal_mode from hub.clients where client_id = %s",
+                (client_id,),
+            )
+            row = cur.fetchone()
+    return (row[0] if row else "auto") or "auto"
+
+
+def _notify_pending_review(*, client_id: str, product_code: str,
+                           proposal_id: str, decision_reason: str | None) -> None:
+    """Fan-out a 'pending review' notification to every staff member with
+    edit access to the client. Non-critical — swallow errors."""
+    try:
+        from app import notifications as _notifs
+        user_ids = _notifs.staff_with_edit_access_to_client(client_id)
+        body = f"Reason: {decision_reason}." if decision_reason else "Đang chờ duyệt thủ công."
+        _notifs.notify_many(
+            user_ids=user_ids, kind="bom_proposal_pending",
+            title=f"BOM proposal cho {product_code} cần duyệt",
+            body=body,
+            link_url=f"/clients/{client_id}/proposals/{proposal_id}",
+            client_id=client_id, related_kind="bom_change_requests",
+            related_id=proposal_id,
+        )
+    except Exception:
+        pass
+
+
+def submit_proposal(*, client_id: str, product_code: str, actor: str, intent: str,
+                    parent_artifact_id: str | None, context: dict,
+                    rows: list[dict]) -> dict:
+    """Submit a BOM proposal. Branches on the client's bom_proposal_mode:
+
+      auto    — auto-rule decides synchronously (existing behaviour).
+      manual  — every proposal lands in 'pending'; a reviewer must act.
+      hybrid  — auto-rule approves clean proposals; rule rejections fall
+                through to 'pending' (with failed_conditions) for override.
+
+    Returns {proposal_id, status, artifact_id?, decision_reason,
+    failed_conditions, idempotent?}.
+    """
+    validate_proposal_contract(
+        actor=actor, intent=intent, parent_artifact_id=parent_artifact_id,
+    )
+    proposal_id = "prop_" + secrets.token_urlsafe(12)
+    nh = normalized_hash(rows)
+    mode = _client_proposal_mode(client_id)
+
+    # Idempotency: if a same-key proposal exists, return its outcome.
+    with connect() as conn:
+        with conn.cursor() as cur:
+            parent_norm = parent_artifact_id or "00000000-0000-0000-0000-000000000000"
+            cur.execute(
+                """
+                select proposal_id, status, materialized_artifact_id, decision_reason,
+                       failed_conditions
+                from hub.bom_change_requests
+                where client_id=%s and product_code=%s and actor=%s and intent=%s
+                  and coalesce(parent_artifact_id, '00000000-0000-0000-0000-000000000000') = %s
+                  and normalized_hash=%s
+                  and status <> 'withdrawn'
+                order by created_at desc limit 1
+                """,
+                (client_id, product_code, actor, intent, parent_norm, nh),
+            )
+            existing = cur.fetchone()
+            if existing:
+                return {
+                    "proposal_id": existing[0],
+                    "status": existing[1],
+                    "artifact_id": existing[2],
+                    "decision_reason": existing[3],
+                    "failed_conditions": existing[4] or [],
+                    "idempotent": True,
+                }
+
+    if mode == "manual":
+        decision = {"approved": False, "reason": None, "failed": []}
+        landed_status = "pending"
+        decided_by = None
+        decision_reason = None
+    else:
+        decision = _auto_evaluate(
+            client_id=client_id, product_code=product_code,
+            parent_artifact_id=parent_artifact_id, context=context, rows=rows,
+        )
+        if decision["approved"]:
+            landed_status = "approved"
+            decided_by = "auto-rule"
+            decision_reason = decision["reason"]
+        elif mode == "hybrid":
+            landed_status = "pending"
+            decided_by = None
+            decision_reason = None
+        else:  # auto + auto-rule rejected
+            landed_status = "rejected"
+            decided_by = "auto-rule"
+            decision_reason = decision["reason"]
+
+    decided_at_clause = "now()" if landed_status != "pending" else "null"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                insert into hub.bom_change_requests
+                  (proposal_id, client_id, product_code, actor, intent,
+                   parent_artifact_id, context, rows_payload, normalized_hash,
+                   status, decided_at, decided_by, decision_reason, failed_conditions)
+                values (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s,
+                        %s, {decided_at_clause}, %s, %s, %s::jsonb)
+                """,
+                (proposal_id, client_id, product_code, actor, intent,
+                 parent_artifact_id, json.dumps(context), json.dumps(rows), nh,
+                 landed_status, decided_by, decision_reason,
+                 json.dumps(decision.get("failed", []))),
+            )
+
+    if landed_status == "approved":
+        artifact_id = create_artifact(
+            client_id=client_id, product_code=product_code, rows=rows,
+            actor=actor, intent=intent, parent_artifact_id=parent_artifact_id,
+            context={**context, "proposal_id": proposal_id},
+            source_upload_id=None,
+        )
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update hub.bom_change_requests set materialized_artifact_id=%s where proposal_id=%s",
+                    (artifact_id, proposal_id),
+                )
+        return {
+            "proposal_id": proposal_id, "status": "approved",
+            "artifact_id": artifact_id, "decision_reason": decision["reason"],
+            "failed_conditions": [],
+        }
+
+    if landed_status == "pending":
+        _notify_pending_review(
+            client_id=client_id, product_code=product_code,
+            proposal_id=proposal_id,
+            decision_reason=(
+                f"auto-rule rejected: {decision['reason']}"
+                if mode == "hybrid" else None
+            ),
+        )
+        return {
+            "proposal_id": proposal_id, "status": "pending",
+            "artifact_id": None, "decision_reason": None,
+            "failed_conditions": decision.get("failed", []),
+        }
+
+    # auto mode + auto-rule rejected: legacy notification path so reviewers
+    # know there's a rejection worth eyeballing.
+    try:
+        from app import notifications as _notifs
+        user_ids = _notifs.staff_with_edit_access_to_client(client_id)
+        _notifs.notify_many(
+            user_ids=user_ids, kind="bom_proposal_rejected",
+            title=f"BOM proposal cho {product_code} bị reject",
+            body=(f"Reason: {decision['reason']}. "
+                  f"Cần staff review thủ công."),
+            link_url=f"/clients/{client_id}/proposals",
+            client_id=client_id, related_kind="bom_change_requests",
+            related_id=proposal_id,
+        )
+    except Exception:
+        pass
+
+    return {
+        "proposal_id": proposal_id, "status": "rejected",
+        "artifact_id": None, "decision_reason": decision["reason"],
+        "failed_conditions": decision.get("failed", []),
+    }
+
+
+def get_proposal(proposal_id: str) -> dict | None:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select proposal_id, client_id, product_code, actor, intent,
+                       parent_artifact_id, context, rows_payload, status,
+                       decided_at, decided_by, decision_reason,
+                       failed_conditions, materialized_artifact_id,
+                       normalized_hash, created_at
+                from hub.bom_change_requests where proposal_id = %s
+                """,
+                (proposal_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cols = [d[0] for d in cur.description]
+            return dict(zip(cols, row))
+
+
+def approve_proposal(*, proposal_id: str, decided_by: str,
+                     reason: str | None = None) -> dict:
+    """Materialize a pending proposal as a new BOM version."""
+    proposal = get_proposal(proposal_id)
+    if not proposal:
+        raise ProposalNotFound(proposal_id)
+    if proposal["status"] != "pending":
+        raise ProposalNotPending(proposal["status"])
+    rows = proposal["rows_payload"] or []
+    context = dict(proposal["context"] or {})
+    artifact_id = create_artifact(
+        client_id=proposal["client_id"], product_code=proposal["product_code"],
+        rows=rows, actor=proposal["actor"], intent=proposal["intent"],
+        parent_artifact_id=proposal["parent_artifact_id"],
+        context={**context, "proposal_id": proposal_id},
+        source_upload_id=None,
+    )
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update hub.bom_change_requests
+                set status='approved', decided_at=now(), decided_by=%s,
+                    decision_reason=%s, materialized_artifact_id=%s
+                where proposal_id=%s
+                """,
+                (decided_by, reason or "manual approve", artifact_id, proposal_id),
+            )
+    try:
+        from app import notifications as _notifs
+        user_ids = _notifs.staff_with_edit_access_to_client(proposal["client_id"])
+        _notifs.notify_many(
+            user_ids=user_ids, kind="bom_proposal_approved",
+            title=f"BOM proposal cho {proposal['product_code']} đã duyệt",
+            body=f"Approved by {decided_by}.",
+            link_url=f"/clients/{proposal['client_id']}/proposals/{proposal_id}",
+            client_id=proposal["client_id"],
+            related_kind="bom_change_requests", related_id=proposal_id,
+        )
+    except Exception:
+        pass
+    return {"proposal_id": proposal_id, "status": "approved", "artifact_id": artifact_id}
+
+
+def reject_proposal(*, proposal_id: str, decided_by: str, reason: str) -> dict:
+    """Mark a pending proposal as rejected with a reviewer-supplied reason."""
+    proposal = get_proposal(proposal_id)
+    if not proposal:
+        raise ProposalNotFound(proposal_id)
+    if proposal["status"] != "pending":
+        raise ProposalNotPending(proposal["status"])
+    reason_clean = (reason or "").strip() or "rejected"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update hub.bom_change_requests
+                set status='rejected', decided_at=now(), decided_by=%s,
+                    decision_reason=%s
+                where proposal_id=%s
+                """,
+                (decided_by, reason_clean, proposal_id),
+            )
+    return {"proposal_id": proposal_id, "status": "rejected"}
+
+
+def withdraw_proposal(*, proposal_id: str, by: str) -> dict:
+    """Submitter or reviewer rescinds a still-pending proposal."""
+    proposal = get_proposal(proposal_id)
+    if not proposal:
+        raise ProposalNotFound(proposal_id)
+    if proposal["status"] != "pending":
+        raise ProposalNotPending(proposal["status"])
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update hub.bom_change_requests
+                set status='withdrawn', decided_at=now(), decided_by=%s,
+                    decision_reason='withdrawn'
+                where proposal_id=%s
+                """,
+                (by, proposal_id),
+            )
+    return {"proposal_id": proposal_id, "status": "withdrawn"}
+
+
+def _auto_evaluate(*, client_id: str, product_code: str,
+                   parent_artifact_id: str | None, context: dict,
+                   rows: list[dict]) -> dict:
+    """Apply 5-condition auto-rule. Speculative criteria — to be tuned with
+    the first real CO modification implementation."""
+    failed: list[str] = []
+
+    # 1. Parent version exists for this dncx + product
+    if parent_artifact_id is not None:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select 1 from hub.bom_artifacts
+                    where artifact_id=%s and client_id=%s and product_code=%s
+                    """,
+                    (parent_artifact_id, client_id, product_code),
+                )
+                if not cur.fetchone():
+                    failed.append("parent_artifact_id_invalid")
+
+    # 2. context.case_id presence — DROPPED in MVP per design decision (no service-discovery to CO yet).
+    # Phase 2: validate against an active CO case via API.
+
+    # 3 & 5. Row delta vs parent: only NVL substitutions; qty changes within tolerance; NVL count growth ≤ 1.
+    if parent_artifact_id:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select bom_proposal_qty_tolerance_pct from hub.clients where client_id = %s
+                    """,
+                    (client_id,),
+                )
+                row = cur.fetchone()
+                tolerance = float(row[0]) if row else 5.0
+                cur.execute(
+                    """
+                    select material_code, qty_per_unit
+                    from hub.bom_artifact_rows where artifact_id=%s
+                    """,
+                    (parent_artifact_id,),
+                )
+                parent_rows = {m: float(q or 0) for (m, q) in cur.fetchall()}
+        proposed_rows = {r["material_code"]: float(r.get("qty_per_unit") or 0) for r in rows}
+        # qty change tolerance for kept materials
+        for m, q in proposed_rows.items():
+            if m in parent_rows and parent_rows[m] != 0:
+                pct = abs(q - parent_rows[m]) / parent_rows[m] * 100
+                if pct > tolerance:
+                    failed.append(f"qty_delta_exceeds_tolerance:{m}:{pct:.2f}%")
+        # anti-bloat
+        added = set(proposed_rows.keys()) - set(parent_rows.keys())
+        if len(added) > 1:
+            failed.append(f"too_many_new_materials:{len(added)}")
+
+    # 4. All material_codes exist + active in hub.materials
+    if rows:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                codes = list({r["material_code"] for r in rows})
+                cur.execute(
+                    """
+                    select material_code from hub.materials
+                    where client_id = %s and material_code = any(%s) and status = 'active'
+                    """,
+                    (client_id, codes),
+                )
+                active = {c for (c,) in cur.fetchall()}
+        missing = [c for c in codes if c not in active]
+        if missing:
+            failed.append(f"unknown_or_inactive_materials:{','.join(sorted(missing)[:5])}")
+
+    if failed:
+        return {"approved": False, "reason": "auto-rule rejected", "failed": failed}
+    return {"approved": True, "reason": "auto-rule approved", "failed": []}
+
+
+# ─── Flatten lookups (used by the upload route to build FlattenContext) ──
+
+def make_bcct_import_lookup(client_id: str):
+    """Return a callable `(material_code) -> bool` answering: has this code
+    appeared on any IMPORT BCCT declaration for this client? Preloads the
+    full set so per-row lookups during flatten are O(1).
+
+    Spec §5: BCCT import evidence is scoped to the same client and to import
+    declarations only. Export evidence does not qualify."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select distinct customs_code from hub.bcct_rows
+                where client_id = %s and direction = 'import'
+                  and customs_code is not null and customs_code <> ''
+                """,
+                (client_id,),
+            )
+            seen = {r[0] for r in cur.fetchall()}
+    return lambda code: code in seen
+
+
+def make_catalog_lookup(client_id: str):
+    """Return a callable `(material_code) -> CatalogEntry | None` from
+    hub.materials. Preloaded so per-row lookups are O(1).
+
+    Post-mig-063: reads `materials.uom` (canonical column). The legacy
+    `unit` column was consolidated into `uom` in mig 063.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select material_code, category, status, uom
+                from hub.materials where client_id = %s
+                """,
+                (client_id,),
+            )
+            entries = {r[0]: CatalogEntry(
+                material_code=r[0], category=r[1], status=r[2], uom=r[3],
+            ) for r in cur.fetchall()}
+    return lambda code: entries.get(code)
+
+
+def make_current_db_btp_lookup(client_id: str):
+    """Return a callable `(material_code, bom_code, bom_variant_id) ->
+    list[ParsedRow] | None` returning the rows of the most-recent published
+    flattened/manual_flat version for that (product_code) at the requested
+    variant. Used by the flattener as the fallback when same-upload doesn't
+    have a child BOM."""
+    # Preload: latest published flattened or not_applicable version per
+    # (product_code, bom_variant_id). Excludes 'modified_for_case' (per the
+    # existing /latest semantics).
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                with latest as (
+                    select distinct on (product_code, coalesce(bom_variant_id, 'default'))
+                        product_code, bom_variant_id, artifact_id, bom_code,
+                        artifact_no, published_at
+                    from hub.bom_artifacts
+                    where client_id = %s
+                      and tombstoned_at is null
+                      and status = 'published'
+                      and intent in ('asserted_technical','staff_edit',
+                                     'derived','customs_declared')
+                      and flatten_status in ('flattened','not_applicable')
+                    order by product_code, coalesce(bom_variant_id, 'default'),
+                             published_at desc nulls last, artifact_no desc
+                )
+                select l.product_code, l.bom_variant_id, l.artifact_id,
+                       r.material_code, r.bom_code, r.bom_variant_id,
+                       r.qty_per_unit, r.uom
+                from latest l
+                left join hub.bom_artifact_rows r on r.artifact_id = l.artifact_id
+                """,
+                (client_id,),
+            )
+            rows_by_key: dict[tuple, list[ParsedRow]] = {}
+            for product_code, variant, _vid, mat, bcd, bvid, qty, uom in cur.fetchall():
+                k = (product_code, variant or "default")
+                rows_by_key.setdefault(k, [])
+                if mat:  # left join may have no rows
+                    rows_by_key[k].append({
+                        "material_code": mat,
+                        "bom_code": bcd or "",
+                        "bom_variant_id": bvid or "default",
+                        "qty_per_unit": float(qty or 0),
+                        "uom": uom,
+                    })
+
+    def lookup(material_code: str, bom_code: str, bom_variant_id: str):
+        # Strict variant equality (per /rev finding C3): only fall back
+        # to "any variant for this code" when caller passes "" (i.e.
+        # explicitly didn't specify a variant). Caller passing 'default'
+        # MUST match a 'default' variant exactly.
+        if bom_variant_id == "":
+            for k, r in rows_by_key.items():
+                if k[0] == material_code:
+                    return r
+            return None
+        key = (material_code, bom_variant_id)
+        return rows_by_key.get(key)
+
+    return lookup
+
+
+# ─── Flatten materialization ──────────────────────────────────────────────
+
+def create_flattened_artifact_set(
+    *, client_id: str, source_upload_id: str | None,
+    result: FlattenResult,
+    decision_id_map: dict[int, str] | None = None,
+    actor: str = "agency_staff",
+    intent: str = "asserted_technical",
+    source_channel: str = "agency_upload",
+    publish_filter=None,    # callable(FlattenedVersion) -> bool
+) -> dict[str, str]:
+    """Materialize a FlattenResult ATOMICALLY in a single transaction.
+
+    Steps inside the transaction:
+      1. Insert every FlattenedVersion (pass 1) plus its rows + audit row.
+      2. Insert bom_unresolved_nodes per non_flattened version.
+      3. Link confirmed decisions to materialized artifact_ids.
+      4. Backfill lineage.btp_versions_used[*].artifact_id (pass 2).
+
+    Per /rev finding C1: all writes go through ONE psycopg connection
+    + cursor so on any failure the entire materialization rolls back.
+    Pending row stays (managed by caller); staff can re-confirm safely.
+
+    Returns mapping `{flattened_version.key.as_tuple()_str: artifact_id}`.
+    `publish_filter` lets the upload route exclude variants that staff
+    didn't confirm (e.g. dual-source where they chose only one strategy).
+    """
+    if publish_filter is None:
+        publish_filter = lambda v: True
+
+    decision_id_map = decision_id_map or {}
+    decisions_by_target: dict[tuple, list[str]] = {}
+    for i, d in enumerate(result.decisions):
+        if i not in decision_id_map:
+            continue
+        if d.target_key:
+            sig = (d.target_key.as_tuple(), d.target_strategy)
+            decisions_by_target.setdefault(sig, []).append(decision_id_map[i])
+
+    materialized: dict[str, str] = {}
+    materialized_by_product: dict[str, str] = {}
+
+    with connect() as conn:
+        with conn.cursor() as cur:
+            # Pass 1: insert every version, rows, audit, unresolved
+            # nodes, and link decisions — all inside one cursor.
+            for v in result.versions:
+                if not publish_filter(v):
+                    continue
+                version_rows = [{
+                    "material_code": r.material_code,
+                    "qty_per_unit": float(r.qty) if isinstance(r.qty, Decimal) else r.qty,
+                    "uom": r.uom,
+                    "bom_code": v.key.bom_code or None,
+                    "bom_variant_id": v.key.bom_variant_id,
+                    "node_path": r.node_path,
+                    "classification_evidence": r.classification_evidence,
+                    "classification_evidence_detail": r.classification_evidence_detail,
+                    "conversion_evidence": r.conversion_evidence,
+                    "original_qty": str(r.original_qty) if r.original_qty is not None else None,
+                    "original_uom": r.original_uom,
+                    "material_group": r.material_group,
+                    "phantom": r.phantom,
+                    "bulk": r.bulk,
+                } for r in v.rows]
+                artifact_id = create_artifact(
+                    client_id=client_id,
+                    product_code=v.key.product_code,
+                    rows=version_rows,
+                    actor=actor,
+                    intent=intent,
+                    parent_artifact_id=None,
+                    context={"channel": source_channel,
+                             "profile": "technical_flatten",
+                             "flatten_method": FLATTEN_METHOD,
+                             "flatten_method_version": FLATTEN_METHOD_VERSION},
+                    source_upload_id=source_upload_id,
+                    source_bom_kind=v.source_bom_kind,
+                    flatten_status=v.flatten_status,
+                    flatten_strategy=v.flatten_strategy,
+                    source_channel=source_channel,
+                    bom_code=v.key.bom_code or None,
+                    bom_variant_id=v.key.bom_variant_id,
+                    lineage=dict(v.lineage or {}),
+                    flatten_method=FLATTEN_METHOD,
+                    flatten_method_version=FLATTEN_METHOD_VERSION,
+                    cursor=cur,
+                )
+                if not artifact_id:
+                    continue
+                key_str = f"{v.key.product_code}|{v.key.bom_code or ''}|{v.key.bom_variant_id}|{v.flatten_strategy}"
+                materialized[key_str] = artifact_id
+                materialized_by_product.setdefault(v.key.product_code, artifact_id)
+                for u in (v.unresolved or []):
+                    cur.execute(
+                        """
+                        insert into hub.bom_unresolved_nodes
+                          (artifact_id, node_path, material_code, reason, evidence)
+                        values (%s, %s, %s, %s, %s::jsonb)
+                        on conflict (artifact_id, node_path) do nothing
+                        """,
+                        (artifact_id, u.node_path, u.material_code,
+                         u.reason, json.dumps(u.evidence, default=str)),
+                    )
+                sig_strategy = (v.key.as_tuple(), v.flatten_strategy)
+                sig_unbound = (v.key.as_tuple(), None)
+                for sig in (sig_strategy, sig_unbound):
+                    for did in decisions_by_target.get(sig, []):
+                        cur.execute(
+                            """
+                            update hub.bom_flatten_decisions
+                            set materialized_artifact_id = %s,
+                                pending_id = null
+                            where decision_id = %s
+                            """,
+                            (artifact_id, did),
+                        )
+
+            # Pass 2: backfill lineage.btp_versions_used[*].artifact_id.
+            for v in result.versions:
+                used = (v.lineage or {}).get("btp_versions_used") or []
+                if not used:
+                    continue
+                key_str = f"{v.key.product_code}|{v.key.bom_code or ''}|{v.key.bom_variant_id}|{v.flatten_strategy}"
+                artifact_id = materialized.get(key_str)
+                if not artifact_id:
+                    continue
+                enriched = []
+                for entry in used:
+                    mat = entry.get("material_code")
+                    vid = materialized_by_product.get(mat)
+                    if vid:
+                        enriched.append({**entry, "artifact_id": vid})
+                    else:
+                        enriched.append(entry)
+                new_lineage = dict(v.lineage or {})
+                new_lineage["btp_versions_used"] = enriched
+                cur.execute(
+                    "update hub.bom_artifacts set lineage = %s::jsonb where artifact_id = %s",
+                    (json.dumps(new_lineage, ensure_ascii=False, default=str), artifact_id),
+                )
+        # `with conn` commits on success; rolls back on any exception.
+
+    return materialized
+
+
+class ResolverError(Exception):
+    """Structured error from resolve_bom_artifact.
+
+    `code` is a machine-stable enum string. `extra` carries data the
+    HTTP layer surfaces in error responses (e.g. variants list for
+    `dual_source_variants`). Tests assert on `code`; HTTP routes map
+    `code` → status (404 / 409 / 422) at their own discretion.
+    """
+
+    def __init__(self, code: str, message: str, **extra):
+        self.code = code
+        self.message = message
+        self.extra = extra
+        super().__init__(message)
+
+
+def resolve_bom_artifact(
+    *,
+    client_id: str,
+    product_code: str,
+    preset_id: str | None = None,
+    case_id: str | None = None,
+    shape: BomShape | None = None,
+) -> dict:
+    """Phase 3b · single deterministic artifact resolver with provenance.
+
+    Precedence (most-specific first; once a step picks an artifact_id,
+    later steps are not consulted):
+
+      1. preset_id — pinned via `hub.bom_presets`. Tombstoned presets
+         remain queryable per D5; returns underlying artifact with a
+         warning in the trail. Tombstoned underlying artifacts are
+         also returned for audit reproduction.
+      2. case_id — `hub.bom_artifacts.context->>'case_id'` match,
+         scoped to (client_id, product_code).
+      3. shape — restrict `latest_flattened_versions` output to one
+         shape; tie-break on variant order (latest published first).
+      4. default — `latest_flattened_versions`. Single → 200, multi →
+         `dual_source_variants`, zero → `no_alive_artifacts`.
+
+    Returns: {artifact_id, shape, resolution_trail}.
+    Raises: `ResolverError` on any failed pick.
+    """
+    trail: list[str] = []
+
+    # 1. preset_id pin
+    if preset_id:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select p.preset_id, p.artifact_id, p.tombstoned_at,
+                       p.client_id, p.product_code,
+                       a.flatten_status, a.flatten_strategy, a.tombstoned_at as art_tomb
+                from hub.bom_presets p
+                left join hub.bom_artifacts a on a.artifact_id = p.artifact_id
+                where p.preset_id = %s
+                """,
+                (preset_id,),
+            )
+            row = cur.fetchone()
+        if not row:
+            raise ResolverError("preset_not_found",
+                                f"preset_id={preset_id!r} not found")
+        (_, art_id, preset_tomb, p_client, p_prod,
+         a_status, a_strategy, art_tomb) = row
+        if p_client != client_id or p_prod != product_code:
+            raise ResolverError(
+                "preset_scope_mismatch",
+                f"preset {preset_id!r} belongs to "
+                f"({p_client!r}, {p_prod!r}), not "
+                f"({client_id!r}, {product_code!r})",
+            )
+        trail.append(f"preset={preset_id} pinned artifact_id={art_id}")
+        if preset_tomb is not None:
+            trail.append(f"warning: preset {preset_id} is tombstoned")
+        if art_tomb is not None:
+            trail.append(f"warning: artifact {art_id} is tombstoned")
+        resolved_shape = bom_shape(a_status or "", a_strategy or "")
+        return {
+            "artifact_id": art_id,
+            "shape": resolved_shape,
+            "resolution_trail": trail,
+        }
+
+    # 2. case_id pin
+    if case_id:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select artifact_id, flatten_status, flatten_strategy
+                from hub.bom_artifacts
+                where client_id = %s
+                  and product_code = %s
+                  and context->>'case_id' = %s
+                  and tombstoned_at is null
+                order by published_at desc nulls last, artifact_no desc
+                limit 1
+                """,
+                (client_id, product_code, case_id),
+            )
+            row = cur.fetchone()
+        if not row:
+            raise ResolverError(
+                "case_not_found",
+                f"no alive artifact for case_id={case_id!r}",
+            )
+        art_id, a_status, a_strategy = row
+        trail.append(f"case_id={case_id} → artifact_id={art_id}")
+        return {
+            "artifact_id": art_id,
+            "shape": bom_shape(a_status, a_strategy),
+            "resolution_trail": trail,
+        }
+
+    # 3. shape filter — tie-breaks ambiguity, doesn't propagate to default
+    items = latest_flattened_versions(
+        client_id=client_id, product_code=product_code,
+    )
+    if shape:
+        items = [
+            it for it in items
+            if bom_shape(it["flatten_status"], it["flatten_strategy"]) == shape
+        ]
+        if not items:
+            raise ResolverError(
+                "no_artifact_for_shape",
+                f"no published artifact with shape={shape!r}",
+            )
+        # latest_flattened_versions orders by (published_at desc nulls
+        # last, artifact_no desc); items[0] is the natural tie-break.
+        pick = items[0]
+        tie = f" (tie-break: 1 of {len(items)} variants)" if len(items) > 1 else ""
+        trail.append(f"shape={shape} → artifact_id={pick['artifact_id']}{tie}")
+        return {
+            "artifact_id": pick["artifact_id"],
+            "shape": shape,
+            "resolution_trail": trail,
+        }
+
+    # 4. default — single-vs-multi without shape filter
+    if not items:
+        raise ResolverError("no_alive_artifacts",
+                            "no published artifact for product")
+    if len(items) > 1:
+        raise ResolverError(
+            "dual_source_variants",
+            "multiple flattened variants exist for this product",
+            variants=items,
+        )
+    pick = items[0]
+    trail.append("default · latest published per (variant, strategy)")
+    return {
+        "artifact_id": pick["artifact_id"],
+        "shape": bom_shape(pick["flatten_status"], pick["flatten_strategy"]),
+        "resolution_trail": trail,
+    }
+
+
+def latest_flattened_versions(*, client_id: str, product_code: str) -> list[dict]:
+    """Return the published, non-tombstoned flattened/not_applicable versions
+    for a product. List length > 1 when dual-source variants are published —
+    callers (api/_latest) decide whether to 200 (single), 409 (multiple), etc.
+
+    Per spec §3A: 'latest' must be a query constrained by status and strategy.
+    Excludes 'modified_for_case' to mirror the existing /latest semantics.
+
+    Multiple variants surface when (bom_variant_id, flatten_strategy)
+    partitions differ — e.g. technical_exploded vs purchased_btp_as_leaf
+    for the same product, or a Mẫu 16 customs-filed variant (bom_variant_id
+    like 'm16_<year>') alongside the technical_flattened 'default' variant.
+    Callers (/v1/hub/products/{p}/bom/latest) return 409 dual_source when
+    len(items) > 1; CO repo handles dropdown + default-pick by inspecting
+    `source_bom_kind` and `human_label`.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                with ranked as (
+                    select artifact_id, artifact_no, flatten_strategy, source_bom_kind,
+                           flatten_status, display_label, human_label,
+                           bom_variant_id, bom_code,
+                           published_at,
+                           row_number() over (
+                               partition by coalesce(bom_variant_id,'default'),
+                                            flatten_strategy
+                               order by published_at desc nulls last,
+                                        artifact_no desc
+                           ) as rn
+                    from hub.bom_artifacts
+                    where client_id = %s and product_code = %s
+                      and tombstoned_at is null
+                      and status = 'published'
+                      and intent in ('asserted_technical','staff_edit',
+                                     'derived','customs_declared')
+                      and flatten_status in ('flattened','not_applicable')
+                )
+                select artifact_id, artifact_no, flatten_strategy, source_bom_kind,
+                       flatten_status, display_label, human_label,
+                       bom_variant_id, bom_code
+                from ranked where rn = 1
+                order by published_at desc nulls last, artifact_no desc
+                """,
+                (client_id, product_code),
+            )
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def get_unresolved_for_version(artifact_id: str) -> list[dict]:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select node_path, material_code, reason, evidence
+                from hub.bom_unresolved_nodes where artifact_id = %s
+                order by node_path
+                """,
+                (artifact_id,),
+            )
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def get_decisions_for_version(artifact_id: str) -> list[dict]:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select decision_id, decision_type, chosen_action, alternatives,
+                       evidence, status, staff_confirmation_required,
+                       confirmed_by, confirmed_at
+                from hub.bom_flatten_decisions
+                where materialized_artifact_id = %s
+                order by created_at
+                """,
+                (artifact_id,),
+            )
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def get_rows_for_artifacts(
+    artifact_ids: list[str], *, exclude_non_declarable: bool = False,
+) -> dict[str, list[dict]]:
+    """Batched sibling of the row fetch inside get_artifact_with_rows: rows
+    for many artifacts in ONE query. Returns {artifact_id: [row, ...]} in
+    row_index order. Per-row dicts are byte-identical to get_artifact_with_rows
+    (artifact_id is popped, not emitted).
+
+    `exclude_non_declarable` drops rows soft-excluded as non-declarable
+    ("rác" — mig 078); default off (every row returned)."""
+    if not artifact_ids:
+        return {}
+    excl_clause = (" and excluded_at is null"
+                   if exclude_non_declarable else "")
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select artifact_id, row_index, material_code, bom_code,
+                       bom_variant_id, qty_per_unit, uom, payload,
+                       excluded_at, exclusion_reason
+                from hub.bom_artifact_rows
+                where artifact_id = any(%s){excl_clause}
+                order by artifact_id, row_index
+                """,
+                (list(artifact_ids),),
+            )
+            cols = [d[0] for d in cur.description]
+            out: dict[str, list[dict]] = {}
+            for r in cur.fetchall():
+                row = dict(zip(cols, r))
+                aid = row.pop("artifact_id")
+                out.setdefault(aid, []).append(row)
+            return out
+
+
+def get_unresolved_for_artifacts(artifact_ids: list[str]) -> dict[str, list[dict]]:
+    """Batched sibling of get_unresolved_for_version. Per-item dicts match
+    that function (artifact_id popped)."""
+    if not artifact_ids:
+        return {}
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select artifact_id, node_path, material_code, reason, evidence
+                from hub.bom_unresolved_nodes
+                where artifact_id = any(%s)
+                order by artifact_id, node_path
+                """,
+                (list(artifact_ids),),
+            )
+            cols = [d[0] for d in cur.description]
+            out: dict[str, list[dict]] = {}
+            for r in cur.fetchall():
+                row = dict(zip(cols, r))
+                aid = row.pop("artifact_id")
+                out.setdefault(aid, []).append(row)
+            return out
+
+
+def get_decisions_for_artifacts(artifact_ids: list[str]) -> dict[str, list[dict]]:
+    """Batched sibling of get_decisions_for_version, keyed by
+    materialized_artifact_id. Per-item dicts match that function (the key
+    column is popped)."""
+    if not artifact_ids:
+        return {}
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select materialized_artifact_id, decision_id, decision_type,
+                       chosen_action, alternatives, evidence, status,
+                       staff_confirmation_required, confirmed_by, confirmed_at
+                from hub.bom_flatten_decisions
+                where materialized_artifact_id = any(%s)
+                order by materialized_artifact_id, created_at
+                """,
+                (list(artifact_ids),),
+            )
+            cols = [d[0] for d in cur.description]
+            out: dict[str, list[dict]] = {}
+            for r in cur.fetchall():
+                row = dict(zip(cols, r))
+                aid = row.pop("materialized_artifact_id")
+                out.setdefault(aid, []).append(row)
+            return out

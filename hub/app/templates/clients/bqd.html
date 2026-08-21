@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}{{ t('bqd.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+{% include "clients/_staleness_bar.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('bqd.title') }}</h2>
+      <p class="meta">{{ t('bqd.subtitle') }}</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-primary" href="/clients/{{ client.client_id }}/bqd/upload">{{ t('bqd.upload_btn') }}</a>
+    </div>
+  </div>
+
+  {% if request.query_params.get('ingested') %}
+  <div class="callout callout-success">Đã lưu {{ request.query_params.get('ingested') }} mã quy đổi.</div>
+  {% elif request.query_params.get('rejected') %}
+  <div class="callout callout-error">File đã bị reject. Không có mã nào được lưu.</div>
+  {% endif %}
+
+  <div class="chip-row">
+    <span class="chip">{{ mapping_stats.total }} pairs</span>
+    <span class="chip">{{ mapping_stats.n_internal }} internal</span>
+    <span class="chip">{{ mapping_stats.n_customs }} customs</span>
+    <span class="chip">{{ mapping_stats.n_1n }} 1:n</span>
+  </div>
+
+  <details>
+    <summary class="subsection-head" style="cursor: pointer; margin: 1rem 0 .4rem;">
+      <h3 style="display: inline; margin: 0;">{{ t('bqd.manual_add') }}</h3>
+    </summary>
+    <form method="post" action="/clients/{{ client.client_id }}/bqd/manual"
+          class="auth-form" style="max-width: 540px; margin-top: .8rem;">
+      <label class="field"><span class="field-label">{{ t('bqd.col.internal_code') }}</span>
+        <input type="text" name="internal_code" required></label>
+      <label class="field"><span class="field-label">{{ t('bqd.col.customs_code') }}</span>
+        <input type="text" name="customs_code" required></label>
+      <label class="field"><span class="field-label">{{ t('catalog.col.category') }}</span>
+        <select name="category">
+          <option value="">—</option>
+          <option value="nvl">NVL</option>
+          <option value="tp">TP</option>
+          <option value="ccdc">CCDC</option>
+        </select>
+      </label>
+      <label class="field"><span class="field-label">{{ t('common.notes') }}</span>
+        <input type="text" name="notes"></label>
+      <button type="submit" class="btn-primary">{{ t('common.save') }}</button>
+    </form>
+  </details>
+</section>
+
+<section class="zone">
+  <div class="subsection-head">
+    <h3>{{ t('bqd.section.bqd') }}</h3>
+  </div>
+
+  {% macro sort_th(col, label) -%}
+    {% set is_active = sort.column == col %}
+    <th class="sortable {% if is_active %}sort-active{% endif %}">
+      <a href="{{ sort_link(col) }}" title="Sắp xếp theo {{ label }}">
+        {{ label }}
+        {%- if is_active %}
+          <span class="sort-arrow">{% if sort.direction == 'asc' %}▲{% else %}▼{% endif %}</span>
+        {%- endif %}
+      </a>
+    </th>
+  {%- endmacro %}
+
+  <form method="get" action="/clients/{{ client.client_id }}/bqd"
+        class="stack-form" style="margin: 1rem 0; max-width: 600px;">
+    {% if sort.column != 'internal_code' or sort.direction != 'asc' %}
+      <input type="hidden" name="sort" value="{{ sort.column }}">
+      <input type="hidden" name="dir" value="{{ sort.direction }}">
+    {% endif %}
+    <input type="search" name="q" value="{{ q }}"
+           placeholder="Tìm theo mã nội bộ hoặc mã hải quan…">
+  </form>
+
+  {% if items %}
+  <table class="dh-table dense">
+    <thead><tr>
+      {{ sort_th('internal_code', t('bqd.col.internal_code')) }}
+      {{ sort_th('customs_code', t('bqd.col.customs_code')) }}
+      <th>{{ t('catalog.col.category') }}</th>
+      <th>{{ t('common.notes') }}</th>
+      {{ sort_th('created_at', 'Tạo lúc') }}
+    </tr></thead>
+    <tbody>
+      {% for r in items %}
+      <tr>
+        <td class="mono">{{ r.internal_code }}</td>
+        <td class="mono">{{ r.customs_code }}</td>
+        <td>{{ r.category or '' }}</td>
+        <td>{{ r.notes or '' }}</td>
+        <td class="mono meta">{{ r.created_at.strftime('%Y-%m-%d') if r.created_at else '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include "clients/_pagination.html" %}
+  {% else %}
+  <div class="empty-state">
+    {% if q %}
+    <p>Không có kết quả với từ khóa "{{ q }}".</p>
+    <a class="btn-ghost" href="/clients/{{ client.client_id }}/bqd">Xóa bộ lọc</a>
+    {% else %}
+    <p>{{ t('bqd.empty') }}</p>
+    <a class="btn-primary" href="/clients/{{ client.client_id }}/bqd/upload">{{ t('bqd.upload_btn') }}</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

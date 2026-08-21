@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ u.original_filename }} · {{ t('uploads.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <p class="meta"><a href="/clients/{{ client.client_id }}/uploads">← {{ t('uploads.title') }}</a></p>
+  <div class="zone-head">
+    <div>
+      <h2 style="word-break: break-all;">{{ u.original_filename }}</h2>
+      <p class="meta">
+        <span class="badge">{{ u.module }}</span>
+        {% if u.parse_status == 'done' %}<span class="badge badge-success">{{ t('uploads.status.done') }}</span>
+        {% elif u.parse_status == 'error' %}<span class="badge badge-warning">{{ t('uploads.status.error') }}</span>
+        {% elif u.parse_status in ['proposed_mapping', 'mapping_pending', 'pending', 'pending_preview'] %}<span class="badge badge-info">{{ t('uploads.status.' + u.parse_status) }}</span>
+        {% elif u.parse_status == 'rejected' %}<span class="badge badge-warning">{{ t('uploads.status.rejected') }}</span>
+        {% else %}<span class="badge">{{ u.parse_status }}</span>{% endif %}
+      </p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-primary" href="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}/download">⬇ {{ t('uploads.download') }}</a>
+      {% if u.parse_status == 'proposed_mapping' and u.module == 'bcct' %}
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bcct/parse-mapping/{{ u.upload_id }}">{{ t('uploads.review_mapping') }} →</a>
+      {% endif %}
+      {% if u.parse_status in ['error', 'rejected'] %}
+      <form method="post" action="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}/delete"
+            onsubmit="return confirm('{{ t('uploads.delete_confirm') }}');" style="margin:0;">
+        <button type="submit" class="btn-secondary" style="color:#c00;">{{ t('common.delete') }}</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if u.parse_error %}
+  <div class="toast toast-error" style="margin: .5rem 0; white-space: pre-wrap;">{{ u.parse_error }}</div>
+  {% endif %}
+
+  <dl class="upload-meta">
+    <div><dt>{{ t('uploads.col.when') }}</dt><dd class="mono">{{ u.created_at.strftime('%Y-%m-%d %H:%M:%S') if u.created_at else '—' }}</dd></div>
+    <div><dt>{{ t('uploads.meta.uploader') }}</dt><dd>{{ u.uploader_name or '—' }}</dd></div>
+    <div><dt>{{ t('uploads.meta.parsed_at') }}</dt><dd class="mono">{{ u.parsed_at.strftime('%Y-%m-%d %H:%M:%S') if u.parsed_at else '—' }}</dd></div>
+    <div><dt>{{ t('uploads.col.rows') }}</dt><dd class="mono">{{ u.row_count if u.row_count is not none else '—' }}</dd></div>
+    <div><dt>{{ t('uploads.col.size') }}</dt><dd class="mono">{{ '{:,} bytes'.format(u.size_bytes) if u.size_bytes else '—' }}</dd></div>
+    <div><dt>{{ t('uploads.meta.mime') }}</dt><dd class="mono">{{ u.mime_type or '—' }}</dd></div>
+    <div><dt>{{ t('uploads.meta.backend') }}</dt><dd class="mono">{{ u.storage_backend or '—' }}</dd></div>
+    <div style="grid-column: 1 / -1;"><dt>SHA-256</dt><dd class="mono" style="word-break: break-all;">{{ u.content_sha256 or '—' }}</dd></div>
+  </dl>
+
+  {% if u.result %}
+  <details style="margin-top: 1rem;">
+    <summary class="btn-ghost" style="cursor: pointer; user-select: none;">{{ t('uploads.result.title') }}</summary>
+    <pre class="upload-result-json">{{ u.result | tojson(indent=2) }}</pre>
+  </details>
+  {% endif %}
+</section>
+
+<section class="zone">
+  <div class="zone-head"><div><h3 style="margin:0;">{{ t('uploads.preview.title') }}</h3></div></div>
+  {% if not preview %}
+    <p class="meta">{{ t('uploads.preview.unavailable') }}</p>
+  {% elif preview.kind == 'table' %}
+    <p class="meta">
+      {% if preview.sheet %}Sheet: <span class="mono">{{ preview.sheet }}</span>{% if preview.sheet_count and preview.sheet_count > 1 %} (+{{ preview.sheet_count - 1 }}){% endif %} · {% endif %}
+      {{ preview.rows|length }} {{ t('uploads.preview.rows_shown') }}{% if preview.row_capped %} · {{ t('uploads.preview.capped') }}{% endif %}
+    </p>
+    <div style="overflow-x: auto;">
+      <table class="dh-table preview-table">
+        <tbody>
+        {% for row in preview.rows %}
+          <tr>
+            <td class="mono preview-rownum">{{ loop.index }}</td>
+            {% for cell in row %}<td>{{ cell }}</td>{% endfor %}
+            {% if preview.ncols > row|length %}{% for _ in range(preview.ncols - row|length) %}<td></td>{% endfor %}{% endif %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% elif preview.kind == 'empty' %}
+    <p class="meta">{{ t('uploads.preview.empty') }}</p>
+  {% elif preview.kind == 'error' %}
+    <p class="meta">{{ t('uploads.preview.error') }}: {{ preview.message }}</p>
+  {% else %}
+    <p class="meta">{{ t('uploads.preview.unsupported') }}
+      <a href="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}/download">{{ t('uploads.download') }} →</a></p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+{% from "clients/_bom_macros.html" import shape_badge, lineage_node %}
+{% block title %}BOM v{{ artifact.artifact_no }} · {{ artifact.product_code }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ artifact.product_code }} <span class="badge badge-info">#{{ artifact.artifact_no }}</span>
+        {% if artifact.is_stale %}
+        <span class="badge badge-warn" data-stale-badge="1"
+              title="{{ t('bom.stale.tooltip') }}">⚠ {{ t('bom.stale.badge') }}</span>
+        {% endif %}
+      </h2>
+      {% if artifact.is_stale %}
+      <div class="note note-warn">
+        <strong>{{ t('bom.stale.heading') }}</strong>
+        <ul class="note-list">
+          {% for r in (artifact.stale_reasons or []) %}
+          <li><span class="mono">{{ r.dim }}</span> · {{ r.source_pk }} · {{ r.observed_at }}</li>
+          {% endfor %}
+        </ul>
+        <a href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh/preview"
+           class="btn-secondary btn-sm">{{ t('bom.stale.refresh') }}</a>
+      </div>
+      {% endif %}
+
+      {% if artifact.has_uom_drift %}
+      <div class="note note-bad">
+        <strong>⚠ Có UoM drift trên artifact này</strong>
+        {% if artifact.flatten_strategy == 'manual_flat_as_provided' %}
+        <p>
+          Manual_flat artifact: thêm hệ số trong
+          <a href="/clients/{{ client.client_id }}/uom-factors">/uom-factors</a>
+          rồi click <strong>Refresh</strong> bên dưới — hệ thống re-convert
+          rows từ <span class="mono">source_uom</span> đã lưu, không cần re-upload.
+        </p>
+        {% elif artifact.source_bom_kind == 'technical_raw' %}
+        <p>
+          Raw_graph artifact: edges lưu nguyên UoM file, không convert được
+          (raw = immutable). Refresh các derived artifacts (shallow / full_flat)
+          để áp factor mới.
+        </p>
+        {% else %}
+        <p>
+          Cần re-upload BOM hoặc edit catalog UoM để khớp với raw.
+        </p>
+        {% endif %}
+        <ul class="note-list">
+          {% for r in (artifact.uom_drift_reasons or []) %}
+          <li>
+            {% if r.dim == 'factor_missing' %}
+              <strong>thiếu hệ số</strong> — mã <span class="mono">{{ r.material_code }}</span>:
+              cross-family chưa có override row trong client_uom_overrides
+            {% elif r.dim == 'unconfirmed_default_1to1' %}
+              <strong>mặc định 1:1</strong> — mã <span class="mono">{{ r.material_code }}</span>:
+              tier-A default, chờ agency xác nhận hệ số
+            {% elif r.dim == 'catalog_uom_missing' %}
+              <strong>catalog uom NULL</strong> — mã <span class="mono">{{ r.material_code }}</span>:
+              cần điền uom trong danh mục
+            {% elif r.dim == 'materials_uom' %}
+              <strong>catalog uom thay đổi</strong> — mã <span class="mono">{{ r.material_code or r.source_pk }}</span>
+            {% else %}
+              <span class="mono">{{ r.dim }}</span> · {{ r.material_code or r.source_pk }}
+            {% endif %}
+            <span class="meta">· {{ r.observed_at }}</span>
+            {% if r.material_code %}
+              <a class="btn-ghost btn-xs"
+                 href="/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ r.material_code|urlencode }}#add-factor-form"
+                 target="_blank">+ hệ số</a>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        <p class="meta">
+          Đã phát sinh: {{ artifact.uom_drift_first_at.strftime('%Y-%m-%d %H:%M') if artifact.uom_drift_first_at else '—' }}
+        </p>
+        {% if artifact.flatten_strategy == 'manual_flat_as_provided' %}
+        <a href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh/preview"
+           class="btn-secondary btn-sm">Refresh (re-convert UoM)</a>
+        {% endif %}
+      </div>
+      {% endif %}
+      <p class="meta">
+        <span class="badge badge-muted">{{ artifact.actor }}</span>
+        <span class="badge badge-muted">{{ artifact.intent }}</span>
+        {% set ctx = artifact.context or {} %}
+        {{ shape_badge(artifact.bom_shape, artifact.flatten_strategy) }}
+        · hash <span class="mono">{{ artifact.normalized_hash[:16] }}</span>
+        {% set parent = (lineage.ancestors[-1] if lineage and lineage.ancestors else None) %}
+        {% if parent %}
+        · forked from
+        <a href="/clients/{{ client.client_id }}/bom/artifact/{{ parent.artifact_id }}"
+           title="{{ parent.artifact_id }}"
+           class="plain-link">
+          <span class="badge badge-info">#{{ parent.artifact_no }}</span>
+          {{ shape_badge(parent.bom_shape) }}{% if parent.bom_variant_id and parent.bom_variant_id != 'default' %}<span class="mono meta">· {{ parent.bom_variant_id }}</span>{% endif %}
+        </a>
+        {% elif artifact.parent_artifact_id %}
+        · forked from <span class="mono text-bad" title="{{ artifact.parent_artifact_id }}">(deleted)</span>
+        {% endif %}
+      </p>
+    </div>
+    <div>
+      {% if rows %}
+      <a class="btn-secondary"
+         href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/export.xlsx">⬇ Xuất Excel</a>
+      {% endif %}
+      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/bom/{{ artifact.product_code }}/artifacts">← artifacts</a>
+    </div>
+  </div>
+
+  <div class="subsection-head"><h3>Provenance</h3></div>
+  <div class="table-wrap">
+    <table class="dh-table dense kv">
+      <tbody>
+        {% if artifact.bom_variant_id and artifact.bom_variant_id != 'default' %}
+        <tr><th>{{ t('bom.col.variant') }}</th>
+            <td class="mono">{{ artifact.bom_variant_id }}</td></tr>
+        {% endif %}
+        <tr><th>Shape</th>
+            <td><span class="mono">{{ artifact.bom_shape }}</span> <span class="meta">(flatten_status={{ artifact.flatten_status }} / flatten_strategy={{ artifact.flatten_strategy }})</span></td></tr>
+        <tr><th>Source kind</th>
+            <td class="mono">{{ artifact.source_bom_kind }}</td></tr>
+        <tr><th>Source channel</th>
+            <td class="mono">{{ artifact.source_channel }}</td></tr>
+        {% if ctx.get('source_filename') %}
+        <tr><th>Source file</th>
+            <td class="mono">{{ ctx.source_filename }}</td></tr>
+        {% endif %}
+        {% if ctx.get('source_batch') %}
+        <tr><th>Source batch</th>
+            <td class="mono">{{ ctx.source_batch }}</td></tr>
+        {% endif %}
+        {% if ctx.get('parser_adapter') %}
+        <tr><th>Parser adapter</th>
+            <td class="mono">{{ ctx.parser_adapter }}</td></tr>
+        {% endif %}
+        {% if ctx.get('ingest_script') %}
+        <tr><th>Ingest script</th>
+            <td class="mono">{{ ctx.ingest_script }}</td></tr>
+        {% endif %}
+        <tr><th>Created at</th>
+            <td class="mono">{{ artifact.created_at.strftime('%Y-%m-%d %H:%M:%S %Z') if artifact.created_at else '—' }}</td></tr>
+        {% if artifact.tombstoned_at %}
+        <tr><th>Thời điểm thay thế</th>
+            <td class="mono text-bad">{{ artifact.tombstoned_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</td></tr>
+        <tr><th>Lý do thay thế</th>
+            <td>{{ artifact.tombstone_reason or '—' }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if lineage and (lineage.ancestors or lineage.descendants or lineage.missing_parent_id) %}
+  <div class="lineage-panel">
+    <h3>Lineage</h3>
+    <div class="lineage-chain">
+      {% if lineage.truncated %}
+        <span class="lineage-truncated">… older ancestors hidden</span>
+        <span class="lineage-arrow">↓</span>
+      {% endif %}
+      {% for a in lineage.ancestors %}
+        {{ lineage_node(a, artifact.artifact_id, client.client_id) }}
+        <span class="lineage-arrow">↓</span>
+      {% endfor %}
+      {% if lineage.missing_parent_id %}
+        <span class="mono lineage-deleted" title="{{ lineage.missing_parent_id }}">(deleted parent: {{ lineage.missing_parent_id[:12] }}…)</span>
+        <span class="lineage-arrow">↓</span>
+      {% endif %}
+      {{ lineage_node({
+            'artifact_id': artifact.artifact_id,
+            'artifact_no': artifact.artifact_no,
+            'bom_variant_id': artifact.bom_variant_id,
+            'bom_shape': artifact.bom_shape,
+            'intent': artifact.intent,
+            'actor': artifact.actor,
+            'tombstoned_at': artifact.tombstoned_at,
+         }, artifact.artifact_id, client.client_id) }}
+      {% if lineage.descendants %}
+        <span class="lineage-arrow">↓ <span class="lineage-arrow-meta">({{ lineage.descendants|length }} forks)</span></span>
+        <div class="lineage-descendants">
+          {% for d in lineage.descendants %}
+            {{ lineage_node(d, artifact.artifact_id, client.client_id) }}
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if artifact.context %}
+  <details class="tech-block">
+    <summary class="subsection-head"><h3>{{ t('bom.context') }} (raw)</h3></summary>
+    <pre class="mono code-block">{{ artifact.context | tojson(indent=2) }}</pre>
+  </details>
+  {% endif %}
+
+  {% if edges %}
+  <div class="table-wrap">
+  <table class="dh-table dense">
+    <thead><tr>
+      <th class="num">{{ t('bom.row_index') }}</th>
+      <th>Parent</th>
+      <th>Child</th>
+      <th class="num">{{ t('bom.qty_per_unit') }}</th>
+      <th>{{ t('bom.uom') }}</th>
+      <th>Level</th>
+      <th>Path</th>
+    </tr></thead>
+    <tbody>
+      {% for e in edges %}
+      <tr>
+        <td class="num">{{ e.row_index }}</td>
+        <td class="mono">{{ e.parent_code }}</td>
+        <td class="mono">{{ e.child_code }}</td>
+        <td class="num">{{ '%.6f'|format(e.qty_per_parent) if e.qty_per_parent else '0' }}</td>
+        <td class="mono">{{ e.uom or '' }}</td>
+        <td class="mono">{{ e.level or '' }}</td>
+        <td class="mono">{{ e.node_path or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="table-wrap">
+  <table class="dh-table dense">
+    <thead><tr>
+      <th class="num">{{ t('bom.row_index') }}</th>
+      <th>{{ t('bom.material') }}</th>
+      <th class="num">{{ t('bom.qty_per_unit') }}</th>
+      <th>{{ t('bom.uom') }}</th>
+      <th>{{ t('bom.bom_code') }}</th>
+      <th>{{ t('bom.bom_variant') }}</th>
+      <th title="SAP Material Group (mig 078)">Nhóm SAP</th>
+      <th title="Trạng thái trên bảng kê C/O">Bảng kê</th>
+      <th>Nguồn</th>
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr{% if r.excluded_at %} class="row-excluded" title="Loại khỏi bảng kê C/O ({{ r.exclusion_reason }})"{% endif %}>
+        <td class="num">{{ r.row_index }}</td>
+        <td class="mono">{{ r.material_code }}</td>
+        <td class="num">{{ '%.6f'|format(r.qty_per_unit) if r.qty_per_unit else '0' }}</td>
+        <td class="mono">{{ r.uom or '' }}</td>
+        <td class="mono">{{ r.bom_code or '' }}</td>
+        <td class="mono">{{ r.bom_variant_id or '' }}</td>
+        <td class="mono">{{ r.payload.material_group or '—' }}{% if r.payload.phantom %} <span class="badge badge-warn" title="SAP phantom item">phantom</span>{% endif %}</td>
+        <td>
+          {% if r.excluded_at %}
+            <span class="badge badge-error" title="Không phải vật tư khai báo — đã loại khỏi bảng kê khi exclude_non_declarable=true">🗑 {{ r.exclusion_reason|replace('rac:','') }}</span>
+          {% elif not r.has_nk %}
+            <span class="badge badge-warn" title="Vật tư khai-được nhưng chưa khớp tờ khai nhập — cần đối soát">⚠ chưa khớp</span>
+          {% else %}
+            <span class="badge badge-success" title="Khai được — có khớp tờ khai nhập">✓</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.has_nk %}
+            <span class="badge badge-muted" title="Có dòng nhập khẩu trong BCCT">NK</span>
+          {% else %}
+            <span class="badge badge-warn" title="Chưa thấy trong BCCT — chỉ xuất hiện trong BOM">BOM-only</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+
+  {% if not artifact.tombstoned_at %}
+  <div class="note note-bad tombstone-panel">
+    <h3>Thu hồi phiên bản</h3>
+    <p class="meta">
+      Đánh dấu thu hồi (tombstone) phiên bản lưu sai. Bản gốc giữ lại để truy vết,
+      nhưng sẽ ẩn khỏi danh sách BOM và API cho app khác. Nếu đây là BOM kỹ thuật,
+      các BOM phẳng dẫn xuất (shallow / full_flat) cũng được thu hồi cùng.
+      <strong>App khác (BCQT/CO) có thể đang dùng phiên bản này.</strong>
+    </p>
+    <form method="post"
+          action="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/tombstone"
+          onsubmit="return confirm('Thu hồi phiên bản này (và các BOM phẳng dẫn xuất)? Hành động ghi log audit.');"
+          class="note-form">
+      <input type="text" name="reason" required maxlength="500"
+             placeholder="Lý do thu hồi (bắt buộc)" class="note-form-input">
+      <button type="submit" class="btn-danger btn-sm">Thu hồi</button>
+    </form>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

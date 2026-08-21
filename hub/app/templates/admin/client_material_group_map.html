@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Bản đồ Material Group · {{ client.name }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Bản đồ Material Group (theo client)</h2>
+      <p class="meta">
+        Ánh xạ mã <code>Material Group</code> của SAP sang loại vật tư + cờ
+        <strong>khai báo được</strong>. Đánh dấu <em>không khai báo</em> với các
+        nhóm rác (bản vẽ / tài liệu / nhãn). Không có dòng = mã đó để mặc định
+        <code>declarable_unmatched</code> (cần review), không bao giờ tự sai.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout callout-info" style="margin-bottom: 1rem;">
+    <strong>Lưu ý hai bước.</strong> Sửa bản đồ cập nhật <em>phân loại</em>
+    (<code>customs_relevance</code>) ngay lập tức. Nhưng việc <em>loại trừ khỏi
+    bảng kê</em> dựa trên cờ đã lưu trên từng dòng BOM — cần chạy lại backfill
+    cho client này để áp dụng thay đổi.
+    <form method="post" action="/clients/{{ client.client_id }}/jobs/start"
+          class="inline-form" style="margin-top: .5rem;">
+      <input type="hidden" name="kind" value="material_group_backfill">
+      <button type="submit" class="btn-secondary" {{ 'disabled' if backfill_active }}>
+        {{ 'Đang chạy backfill…' if backfill_active else 'Chạy lại backfill cho client này' }}
+      </button>
+    </form>
+  </div>
+
+  {% if rows %}
+  <table class="dh-table dense">
+    <thead>
+      <tr><th>Material Group</th><th>Loại vật tư</th><th>Khai báo được</th>
+          <th>Nguồn</th><th>Ghi chú</th><th>Thao tác</th></tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="mono">{{ r.material_group }}</td>
+        <td>{{ r.item_category }}</td>
+        <td><span class="badge badge-{{ 'success' if r.is_declarable else 'muted' }}">{{ 'khai báo được' if r.is_declarable else 'rác' }}</span></td>
+        <td class="mono">{{ r.source }}</td>
+        <td>{{ r.notes or '—' }}</td>
+        <td class="actions-cell">
+          <form method="post"
+                action="/clients/{{ client.client_id }}/material-group-map/delete"
+                class="inline-form">
+            <input type="hidden" name="material_group" value="{{ r.material_group }}">
+            <button type="submit" class="btn-danger">Xóa</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">Chưa có bản đồ riêng cho client này. Mọi mã Material Group sẽ
+    để mặc định <code>declarable_unmatched</code>.</p>
+  {% endif %}
+
+  <form method="post" action="/clients/{{ client.client_id }}/material-group-map/add"
+        class="settings-form">
+    <span class="fld-group-title">Thêm / cập nhật dòng</span>
+    <div class="settings-grid">
+      <div class="field">
+        <label for="mg-code">Material Group</label>
+        <input type="text" id="mg-code" name="material_group" required placeholder="vd: RD07"
+               class="mono" style="text-transform: uppercase;">
+        <span class="field-hint">Nhập lại một mã đã có để cập nhật (ghi đè dòng cũ).</span>
+      </div>
+      <div class="field">
+        <label for="mg-category">Loại vật tư</label>
+        <select id="mg-category" name="item_category" required>
+          {% for c in item_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </select>
+        <span class="field-hint">Phân loại dùng khi dựng bảng kê và đối chiếu BCCT.</span>
+      </div>
+      <div class="field">
+        <label for="mg-notes">Ghi chú</label>
+        <input type="text" id="mg-notes" name="notes" placeholder="(tùy chọn)">
+        <span class="field-hint">Ghi lại lý do phân loại để người sau đọc được.</span>
+      </div>
+      <div class="field">
+        <label>Khai báo được</label>
+        <label class="inline-check">
+          <input type="checkbox" name="is_declarable" checked>
+          <span>Có — dòng BOM thuộc nhóm này vào bảng kê</span>
+        </label>
+        <span class="field-hint">Bỏ chọn với nhóm rác: bản vẽ, tài liệu, nhãn.</span>
+      </div>
+    </div>
+    <div class="settings-footer">
+      <button type="submit" class="btn-primary">Lưu</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

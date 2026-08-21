@@ -1,0 +1,467 @@
+{% extends "base.html" %}
+{% from "_format.html" import format_number, format_int, format_date %}
+{% block title %}Mã chờ duyệt · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Mã chờ duyệt</h2>
+      <p class="meta">
+        Phát hiện mã mới từ BCCT + BOM + BQD — tính trực tiếp từ dữ liệu
+        nguồn, không lưu bảng riêng. Duyệt thì cho vào catalog; không thì
+        từ chối (ẩn khỏi feed). Bấm «Làm mới» để quét lại liên kết mã
+        trong ngoặc sau khi nạp dữ liệu ngoài luồng.
+      </p>
+    </div>
+    <div class="page-actions">
+      <form method="post"
+            action="/clients/{{ client.client_id }}/catalog/candidates/refresh"
+            style="display: inline;">
+        <button type="submit" class="btn-secondary">↻ Làm mới</button>
+      </form>
+      <a class="btn-secondary"
+         href="/clients/{{ client.client_id }}/catalog">← {{ t('catalog.title') }}</a>
+    </div>
+  </div>
+
+  {% set toast_code = request.query_params.get('code') %}
+  {% if request.query_params.get('accepted') %}
+    <div class="toast" style="margin-bottom: 1rem;">
+      ✓ Đã thêm <code>{{ toast_code or '?' }}</code> vào catalog.
+      {% if toast_code %}
+        <a href="/clients/{{ client.client_id }}/catalog/{{ toast_code }}/detail">
+          Xem trong catalog →
+        </a>
+      {% endif %}
+    </div>
+  {% elif request.query_params.get('rejected') %}
+    <div class="toast" style="margin-bottom: 1rem;">
+      ✓ Đã từ chối <code>{{ toast_code or '?' }}</code>.
+      {% if toast_code %}
+        <a href="/clients/{{ client.client_id }}/catalog/candidates/detail?code={{ toast_code|urlencode }}">
+          Xem chi tiết →
+        </a>
+      {% endif %}
+    </div>
+  {% elif request.query_params.get('unrejected') %}
+    <div class="toast" style="margin-bottom: 1rem;">
+      ↻ Đã khôi phục <code>{{ toast_code or '?' }}</code> về pending.
+    </div>
+  {% elif request.query_params.get('refreshed') is not none %}
+    <div class="toast" style="margin-bottom: 1rem;">
+      ↻ Đã quét lại nguồn — {{ request.query_params.get('refreshed') }} mã
+      trong danh sách.
+    </div>
+  {% elif request.query_params.get('bulk_accepted') is not none %}
+    <div class="toast" style="margin-bottom: 1rem;">
+      ✓ Đã duyệt hàng loạt {{ request.query_params.get('bulk_accepted') }} mã
+      vào catalog.
+      {% set bskip = request.query_params.get('bulk_skipped')|int %}
+      {% if bskip %}
+        <span class="meta">— bỏ qua {{ bskip }} mã chưa phân loại được
+        (để duyệt thủ công).</span>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <form method="get" class="search-bar" style="margin-bottom: 0.75rem;">
+    {# Carry the whole active filter — searching narrows, it never resets. #}
+    {% for k, v in filter_params.items() if k != 'q' %}
+      <input type="hidden" name="{{ k }}" value="{{ v }}">
+    {% endfor %}
+    <input type="search" name="q" value="{{ active_q }}"
+           class="client-filter" placeholder="Tìm code hoặc sample text…">
+    <button type="submit" class="btn-secondary btn-sm">Tìm</button>
+    {% if active_q %}
+      <a class="btn-ghost btn-sm" href="{{ filter_url(q=None) }}">
+        ✗ Xóa
+      </a>
+      <span class="meta">— "{{ active_q }}" — {{ pending_total }} kết quả</span>
+    {% endif %}
+  </form>
+
+  <div class="filter-bar" style="margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+    {# Each chip's count is computed in the state its own click produces, so
+       the number it advertises is the number it delivers (#54). #}
+    <a class="chip {{ 'chip-active' if not active_kind else '' }}"
+       href="{{ filter_url(kind=None) }}">
+      Tất cả ({{ base_total }})
+    </a>
+    {% for k in ['nb', 'hq', 'unified'] %}
+      {% set n = kind_counts.get(k, 0) %}
+      {% if n > 0 %}
+      <a class="chip {{ 'chip-active' if active_kind == k else '' }}"
+         href="{{ filter_url(kind=k) }}">
+        {{ k|upper }} ({{ n }})
+      </a>
+      {% endif %}
+    {% endfor %}
+    {% if source_counts %}
+      <span class="meta" style="margin-left: 0.5rem;">Nguồn:</span>
+      {% for s in ['bcct', 'bom', 'bqd'] %}
+        {% set sn = source_counts.get(s, 0) %}
+        {% if sn > 0 %}
+        <a class="chip {{ 'chip-active' if active_source == s else '' }}"
+           href="{{ filter_url(source=s) }}">
+          {{ s|upper }} ({{ sn }})
+        </a>
+        {% endif %}
+      {% endfor %}
+      {% if active_source %}
+        <a class="btn-ghost btn-sm"
+           href="{{ filter_url(source=None) }}">✗ nguồn</a>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <div class="filter-panel">
+    <form method="get" class="filter-panel-form">
+      {# The facets this form does not own; its own three are inputs below. #}
+      {% for k, v in filter_params.items()
+         if k not in ['leaf', 'min_observed', 'show_machinery'] %}
+        <input type="hidden" name="{{ k }}" value="{{ v }}">
+      {% endfor %}
+      <label title="Mã là lá cuối của một BOM đã làm phẳng — tín hiệu duyệt hàng loạt">
+        <input type="checkbox" name="leaf" value="1" {% if active_leaf %}checked{% endif %}>
+        Chỉ lá BOM đã làm phẳng ({{ leaf_count }})
+      </label>
+      <label title="Ngưỡng số lần quan sát tối thiểu">
+        Quan sát ≥
+        <input type="number" name="min_observed" min="0"
+               value="{{ active_min_observed or '' }}" style="width: 5rem;">
+      </label>
+      <label title="Mặc định ẩn mã máy móc (excluded_non_material)">
+        <input type="checkbox" name="show_machinery" value="1"
+               {% if active_show_machinery %}checked{% endif %}>
+        Hiện mã máy móc ({{ machinery_total }})
+      </label>
+      <button type="submit" class="btn-secondary btn-sm">Áp dụng lọc</button>
+      {% if active_leaf or active_min_observed or active_show_machinery %}
+        <a class="btn-ghost btn-sm"
+           href="{{ filter_url(leaf=None, min_observed=None,
+                               show_machinery=None) }}">✗ Bỏ lọc</a>
+      {% endif %}
+    </form>
+
+  </div>
+
+  {% if pending_total > 0 %}
+  {# The approve form owns no rows itself — the per-row checkboxes join it by
+     `form="bulk-form"`, so the table can carry its own reject forms without
+     nesting. Empty submit is a no-op server-side; select-all-matching is set
+     by JS from the banner. Danh mục theo đề xuất, tên/UoM theo dữ liệu. #}
+  <form method="post" id="bulk-form" class="decide"
+        action="/clients/{{ client.client_id }}/catalog/candidates/bulk-accept"
+        data-total="{{ pending_total }}">
+    {% for k, v in filter_params.items() %}
+      <input type="hidden" name="{{ k }}" value="{{ v }}">
+    {% endfor %}
+    <input type="hidden" name="select_all_matching" id="select-all-matching"
+           value="">
+    <div class="decide-head">
+      <h3>Duyệt hàng loạt</h3>
+      <span class="meta">{{ pending_total }} mã khớp bộ lọc hiện tại · danh mục
+        lấy theo đề xuất, tên và UoM lấy theo dữ liệu nguồn.</span>
+    </div>
+    <div class="decide-foot">
+      <span class="decide-hint" id="bulk-select-banner" hidden>
+        Đã chọn cả {{ page_params.page_size }} mã trên trang này.
+        <a href="#" id="select-all-matching-link">Chọn tất cả {{ pending_total }}
+          mã khớp bộ lọc</a>.
+      </span>
+      <span class="decide-hint" id="bulk-selected-all" hidden>
+        Đang chọn tất cả {{ pending_total }} mã khớp bộ lọc.
+        <a href="#" id="clear-select-all">Bỏ chọn</a>.
+      </span>
+      <button type="submit" class="btn-primary btn-sm" id="bulk-approve-btn"
+              disabled data-label-empty="Chọn mã để duyệt"
+              data-label-some="Duyệt {n} mã đã chọn"
+              data-label-all="Duyệt toàn bộ {n} mã khớp bộ lọc">
+        Chọn mã để duyệt
+      </button>
+    </div>
+  </form>
+  {% endif %}
+
+  {% if not pending %}
+    <div class="empty-state">
+      <p class="meta">Không có candidate nào đang chờ duyệt.
+      {% if active_kind %}Lọc theo kind={{ active_kind }} không có kết quả.{% endif %}
+      </p>
+    </div>
+  {% else %}
+    <div class="table-wrap">
+    <table class="data-table dense" id="candidates-table">
+      <thead>
+        <tr>
+          <th class="check-col">
+            <input type="checkbox" id="select-page"
+                   title="Chọn tất cả mã trên trang này"
+                   aria-label="Chọn tất cả mã trên trang này">
+          </th>
+          <th>Mã</th>
+          <th>Loại</th>
+          <th>Nguồn</th>
+          <th>Đề xuất</th>
+          <th>Tín hiệu</th>
+          <th>Quan sát</th>
+          <th>Tham chiếu</th>
+          <th>Lần cuối</th>
+          <th>Hành động</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for c in pending %}
+        <tr data-kind="{{ c.code_kind }}" data-code="{{ c.code }}">
+          <td class="check-col">
+            <input type="checkbox" class="row-check" name="codes"
+                   value="{{ c.code }}" form="bulk-form"
+                   aria-label="Chọn {{ c.code }}">
+          </td>
+          <td>
+            <a href="/clients/{{ client.client_id }}/catalog/candidates/detail?code={{ c.code|urlencode }}&kind={{ c.code_kind }}"
+               title="Xem chi tiết">
+              <code>{{ c.code }}</code>
+            </a>
+          </td>
+          <td>
+            {% if c.code_kind == 'nb' %}<span class="badge badge-nb" title="Nội bộ — mã ERP của agency">NB</span>
+            {% elif c.code_kind == 'hq' %}<span class="badge badge-hq" title="Hải Quan — bucket gom nhiều mã NB">HQ</span>
+            {% else %}<span class="badge badge-unified" title="Thống nhất — NB ≡ HQ">TN</span>{% endif %}
+          </td>
+          <td>
+            {% for s in c.sources %}
+              <span class="badge badge-source">{{ s|upper }}</span>
+            {% endfor %}
+          </td>
+          <td>
+            {% if c.suggested_category %}
+              <span class="badge badge-category">{{ c.suggested_category }}</span>
+            {% endif %}
+            {% if c.multi_direction %}
+              <span class="badge badge-warn"
+                    title="BCCT cả nhập và xuất — xét đa nguồn (multi-role)">⚠ đa hướng</span>
+            {% endif %}
+            {% if c.bom_role == 'tp_root' %}
+              <span class="badge badge-info" title="Là root code của artifact BOM">TP root</span>
+            {% elif c.bom_role == 'btp_sx' %}
+              <span class="badge badge-info" title="Parent giữa cây BOM">BTP_SX</span>
+            {% elif c.bom_role == 'nvl_leaf' %}
+              <span class="badge badge-info" title="Lá cuối trong BOM">leaf</span>
+            {% endif %}
+            {% if c.leaf_in_flattened_bom %}
+              <span class="badge badge-success"
+                    title="Là lá của một BOM đã làm phẳng — đủ điều kiện duyệt hàng loạt">✓ lá phẳng</span>
+            {% endif %}
+          </td>
+          <td class="meta">
+            {% if c.import_count or c.export_count %}
+              <span title="BCCT direction breakdown">
+                {% if c.import_count %}↓ {{ format_int(c.import_count) }}{% endif %}
+                {% if c.import_count and c.export_count %} · {% endif %}
+                {% if c.export_count %}↑ {{ format_int(c.export_count) }}{% endif %}
+              </span>
+            {% endif %}
+            {% if c.code_kind == 'hq' and c.co_occurrence_count > 0 %}
+              <div class="meta cell-note"
+                   title="Số NB cặp với HQ này trong BCCT">
+                ↔ {{ c.co_occurrence_count }} NB
+              </div>
+            {% elif c.code_kind == 'nb' and c.co_occurrence_count > 0 %}
+              <div class="meta cell-note"
+                   title="Số HQ cặp với NB này trong BCCT">
+                ↔ {{ c.co_occurrence_count }} HQ
+              </div>
+            {% endif %}
+          </td>
+          <td class="num" title="Total observations across all sources">
+            {{ format_int(c.observed_count) }}
+            {% if c.decl_count %}
+              <div class="meta cell-note"
+                   title="Distinct BCCT declarations">
+                {{ c.decl_count }} decl
+              </div>
+            {% endif %}
+          </td>
+          <td class="meta cell-clip">
+            {% if c.sample_text %}
+              <div title="{{ c.sample_text }}">
+                {{ c.sample_text[:80] }}{% if c.sample_text|length > 80 %}…{% endif %}
+              </div>
+            {% endif %}
+            {% if c.bom_sample %}
+              <div class="meta cell-note">
+                BOM: {{ c.bom_sample }}
+              </div>
+            {% endif %}
+            {% if c.hs_code or c.uom or c.origin %}
+              <div class="meta cell-note cell-note-gap">
+                {% if c.hs_code %}
+                  <span class="badge badge-info"
+                        title="Mã HS {% if c.hs_alternates_count > 0 %}({{ c.hs_alternates_count }} mã HS khác cũng quan sát được){% endif %}">
+                    HS: {{ c.hs_code }}{% if c.hs_alternates_count > 0 %} ⚠{% endif %}
+                  </span>
+                {% endif %}
+                {% if c.uom %}
+                  <span class="badge badge-info">{{ c.uom }}</span>
+                {% endif %}
+                {% if c.origin %}
+                  <span class="badge badge-info">{{ c.origin }}</span>
+                {% endif %}
+                {% if c.inferred_production_source %}
+                  <span class="badge badge-info"
+                        title="Production source inferred from direction">
+                    {{ c.inferred_production_source }}
+                  </span>
+                {% endif %}
+              </div>
+            {% endif %}
+            {% if not c.sample_text and not c.bom_sample and not c.hs_code %}—{% endif %}
+          </td>
+          <td class="meta">
+            {% if c.last_seen %}
+              {{ format_date(c.last_seen) }}
+              {% if c.first_seen and c.first_seen != c.last_seen %}
+                <div class="meta cell-note">
+                  từ {{ format_date(c.first_seen) }}
+                </div>
+              {% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {# Opens the single-row accept dialog; JS reads these attributes
+               to prefill it. A <noscript> inline fallback keeps the flow
+               usable without JS. #}
+            {# data-category mirrors the bulk path's derivation: suggested,
+               else a flattened-BOM leaf is NVL. Prefilling raw suggested only
+               would default the dropdown to the first option for leaf rows —
+               a wrong-category footgun. #}
+            <button type="button" class="btn-primary btn-xs js-accept-open"
+                    data-code="{{ c.code }}"
+                    data-code-kind="{{ c.code_kind }}"
+                    data-name="{{ c.sample_text[:120] if c.sample_text else '' }}"
+                    data-category="{{ c.suggested_category or ('nvl' if c.leaf_in_flattened_bom else '') }}"
+                    data-uom="{{ c.uom or '' }}"
+                    data-psource="{{ c.inferred_production_source or '' }}">
+              Duyệt
+            </button>
+            <noscript>
+              <a class="btn-secondary btn-xs"
+                 href="/clients/{{ client.client_id }}/catalog/candidates/detail?code={{ c.code|urlencode }}&kind={{ c.code_kind }}">
+                Duyệt…
+              </a>
+            </noscript>
+            <form method="post"
+                  action="/clients/{{ client.client_id }}/catalog/candidates/reject"
+                  style="display: inline-block; margin-left: 0.25rem;">
+              <input type="hidden" name="code" value="{{ c.code }}">
+              <input type="hidden" name="code_kind" value="{{ c.code_kind }}">
+              <input type="hidden" name="reason" value="">
+              <button type="submit" class="btn-secondary btn-xs"
+                      onclick="return confirm('Từ chối {{ c.code }}?')">Từ chối</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+
+    {% include "clients/_pagination.html" %}
+
+    {# ── Single-row accept dialog (#55). One element, JS fills it per row.
+         Posts to the unchanged /accept route. ── #}
+    <dialog id="accept-dialog" class="accept-dialog">
+      <form method="post"
+            action="/clients/{{ client.client_id }}/catalog/candidates/accept"
+            class="form-stack">
+        <h3>Duyệt <code id="ad-code"></code> vào catalog</h3>
+        <input type="hidden" name="code" id="ad-code-input">
+        <input type="hidden" name="code_kind" id="ad-code-kind">
+        <label class="field">Tên hàng
+          <input type="text" name="name" id="ad-name" required>
+        </label>
+        <label class="field">Danh mục
+          <select name="category" id="ad-category" required>
+            {% for cat in categories %}
+              <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="field-pair">
+          <label class="field">UoM
+            <input type="text" name="uom" id="ad-uom">
+          </label>
+          <label class="field">Nguồn SX
+            <select name="production_source" id="ad-psource">
+              <option value="">—</option>
+              {% for ps in production_sources %}
+                <option value="{{ ps }}">{{ ps }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <label class="field">Nhà cung cấp (tùy chọn)
+          <input type="text" name="supplier_hint" id="ad-supplier">
+        </label>
+        <div class="dialog-actions">
+          <button type="button" class="btn-secondary btn-sm"
+                  id="ad-cancel">Hủy</button>
+          <button type="submit" class="btn-primary btn-sm">Lưu vào catalog</button>
+        </div>
+      </form>
+    </dialog>
+  {% endif %}
+
+  <script src="/static/js/catalog-candidates.js" defer></script>
+
+  {% if rejected %}
+  <details class="rejected-block">
+    <summary class="btn-secondary btn-sm">
+      Đã từ chối ({{ rejected|length }})
+    </summary>
+    <table class="data-table dense">
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Kind</th>
+          <th>Lý do</th>
+          <th>Bởi</th>
+          <th>Khi nào</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for c in rejected %}
+        <tr>
+          <td>
+            <a href="/clients/{{ client.client_id }}/catalog/candidates/detail?code={{ c.code|urlencode }}"
+               title="Xem chi tiết"><code>{{ c.code }}</code></a>
+          </td>
+          <td>
+            {% if c.code_kind == 'nb' %}<span class="badge badge-nb" title="Nội bộ">NB</span>
+            {% elif c.code_kind == 'hq' %}<span class="badge badge-hq" title="Hải Quan">HQ</span>
+            {% else %}<span class="badge badge-unified" title="Thống nhất">TN</span>{% endif %}
+          </td>
+          <td class="meta">{{ c.decision_reason or '—' }}</td>
+          <td class="meta">{{ c.decided_by or '—' }}</td>
+          <td class="meta">{{ format_date(c.decided_at) if c.decided_at else '—' }}</td>
+          <td>
+            <form method="post"
+                  action="/clients/{{ client.client_id }}/catalog/candidates/unreject"
+                  style="display: inline-block;">
+              <input type="hidden" name="code" value="{{ c.code }}">
+              <button type="submit" class="btn-secondary btn-sm">↻ Khôi phục</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endif %}
+
+</section>
+{% endblock %}

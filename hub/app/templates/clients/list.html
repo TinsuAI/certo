@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav.clients') }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+<section class="page-bar">
+  <h1>{{ t('clients.title') }}</h1>
+  <span class="page-tagline">{{ items|length }} · {{ t('clients.tagline') }}</span>
+  <div class="page-actions">
+    {% if can_create_client %}
+    <a class="btn-primary" href="/clients/new">+ {{ t('clients.add') }}</a>
+    {% endif %}
+  </div>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('clients.list_heading') }}</h2>
+      <p class="meta">{{ t('clients.list_meta') }}</p>
+    </div>
+    {% if items %}
+    <input type="search" id="client-filter" class="client-filter"
+           placeholder="{{ t('clients.search_placeholder') }}"
+           aria-label="{{ t('clients.search_placeholder') }}" autocomplete="off">
+    {% endif %}
+  </div>
+  {% if items %}
+  <div class="table-wrap">
+    <table class="dh-table dense client-table" id="client-table">
+      <thead>
+        <tr>
+          <th>{{ t('clients.col.name') }}</th>
+          <th>{{ t('clients.row.tax') }}</th>
+          <th>{{ t('clients.field.code_resolution_mode') }}</th>
+          <th class="num">{{ t('workspace.stat.catalog') }}</th>
+          <th class="num">{{ t('workspace.stat.bqd') }}</th>
+          <th class="num">{{ t('workspace.stat.bcct') }}</th>
+          <th class="num">{{ t('workspace.stat.bom') }}</th>
+          <th>{{ t('common.status') }}</th>
+        </tr>
+      </thead>
+      <tbody id="client-rowlist">
+        {% for c in items %}
+        <tr class="client-row" tabindex="0"
+            data-row-href="/clients/{{ c.client_id }}"
+            data-search="{{ (c.name ~ ' ' ~ c.client_id ~ ' ' ~ (c.tax_code or ''))|lower }}">
+          <td class="client-name">
+            <a href="/clients/{{ c.client_id }}"><strong>{{ c.name }}</strong></a>
+            <span class="mono meta">{{ c.client_id }}</span>
+          </td>
+          <td class="mono">{{ c.tax_code or '—' }}</td>
+          <td><span class="badge badge-muted">{{ t('clients.mode.' + c.code_resolution_mode + '.short') }}</span></td>
+          <td class="client-count{{ '' if c.n_materials else ' is-empty' }}">{{ c.n_materials or '—' }}</td>
+          <td class="client-count{{ '' if c.n_mappings else ' is-empty' }}">{{ c.n_mappings or '—' }}</td>
+          <td class="client-count{{ '' if c.n_bcct else ' is-empty' }}">{{ c.n_bcct or '—' }}</td>
+          <td class="client-count{{ '' if c.n_bom else ' is-empty' }}">{{ c.n_bom or '—' }}</td>
+          <td>
+            {% if c.status == 'active' %}
+            <span class="badge badge-success">{{ t('status.active') }}</span>
+            {% elif c.status == 'archived' %}
+            <span class="badge badge-muted">{{ t('status.archived') }}</span>
+            {% else %}
+            <span class="badge badge-muted">{{ c.status }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="meta client-filter-empty" id="client-filter-empty" style="display:none">{{ t('clients.search_empty') }}</p>
+  {% else %}
+  <div class="empty-state">
+    <p>{{ t('clients.empty') }}</p>
+    {% if can_create_client %}
+    <a class="btn-primary" href="/clients/new">+ {{ t('clients.add') }}</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+
+{% if items %}
+<script>
+  (function () {
+    var inp = document.getElementById('client-filter');
+    if (!inp) return;
+    var rows = [].slice.call(document.querySelectorAll('#client-rowlist .client-row'));
+    var empty = document.getElementById('client-filter-empty');
+    inp.addEventListener('input', function () {
+      var q = inp.value.trim().toLowerCase();
+      var shown = 0;
+      rows.forEach(function (r) {
+        var hit = !q || r.getAttribute('data-search').indexOf(q) >= 0;
+        r.style.display = hit ? '' : 'none';
+        if (hit) shown++;
+      });
+      if (empty) empty.style.display = shown > 0 ? 'none' : '';
+    });
+  })();
+</script>
+{% endif %}
+{% endblock %}

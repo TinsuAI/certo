@@ -1,0 +1,59 @@
+{% extends "clients/_upload_preview.html" %}
+
+{% block module_summary %}
+<div class="upload-card upload-card-wide">
+  <div class="upload-card-head">
+    <h3>Tổng quan</h3>
+    <p>Upsert theo cặp <span class="mono">internal_code</span> + <span class="mono">customs_code</span>.</p>
+  </div>
+  <div class="upload-card-body">
+    <div class="flow-facts">
+      <span class="badge badge-brand">{{ summary.total }} mã quy đổi</span>
+      <span class="badge badge-muted">{{ summary.n_distinct_internal }} mã nội bộ</span>
+      <span class="badge badge-muted">{{ summary.n_distinct_customs }} mã hải quan</span>
+      {% if summary.n_one_to_many > 0 %}
+      <span class="badge badge-warning">{{ summary.n_one_to_many }} mã nội bộ ánh xạ 1-N</span>
+      {% endif %}
+    </div>
+    {% if summary.by_category and summary.by_category|length > 1 %}
+    <div class="flow-facts">
+      <span>Theo loại:</span>
+      {% for cat, n in summary.by_category.items() %}
+      <span class="badge">{{ cat }}: {{ n }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block module_sample %}
+<div class="upload-card upload-card-wide">
+  <div class="upload-card-head">
+    <h3>Mẫu {{ sample_rows|length }} dòng đầu</h3>
+    <p>Trên tổng {{ summary.total }} dòng.</p>
+  </div>
+  <div class="mapping-raw-scroll">
+    <table class="data-table dense">
+      <thead>
+        <tr>
+          <th>Mã nội bộ</th>
+          <th>Mã hải quan</th>
+          <th>Loại</th>
+          <th>Ghi chú</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in sample_rows %}
+        <tr>
+          <td class="mono">{{ r.internal_code }}</td>
+          <td class="mono">{{ r.customs_code }}</td>
+          <td>{{ r.category or "—" }}</td>
+          <td class="meta">{{ r.notes or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

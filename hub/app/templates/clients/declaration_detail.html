@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% from "_format.html" import format_int %}
+{% block title %}TK {{ declaration_no }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>
+        Tờ khai
+        <span class="mono" style="font-weight: 500;">{{ declaration_no }}</span>
+      </h2>
+      <p class="meta">
+        File gốc (XLS) + bản scan (PDF) cho hồ sơ C/O. Liên kết qua số TK.
+      </p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-ghost" href="/clients/{{ client.client_id }}/declarations">
+        ← Danh sách tờ khai
+      </a>
+    </div>
+  </div>
+
+  {% if uploaded %}
+  <div class="toast toast-success" style="margin-bottom: 1rem;">
+    ✓ Đã tải lên file mới.
+  </div>
+  {% endif %}
+  {% if deduped %}
+  <div class="toast toast-info" style="margin-bottom: 1rem;">
+    ↻ File đã tồn tại (sha256 trùng), không tải lên lại.
+  </div>
+  {% endif %}
+  {% if error %}
+  <div class="toast toast-error" style="margin-bottom: 1rem;">
+    ⚠ {{ error }}
+  </div>
+  {% endif %}
+
+  <h3>Files đính kèm ({{ files|length }})</h3>
+  {% if files %}
+  <table class="dh-table">
+    <thead>
+      <tr>
+        <th>Tên file</th>
+        <th>Loại</th>
+        <th>Hướng</th>
+        <th class="num">Kích thước</th>
+        <th>Tải lên lúc</th>
+        <th>Người tải</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in files %}
+      <tr>
+        <td class="mono"
+            style="max-width: 30ch; overflow: hidden; text-overflow: ellipsis;"
+            title="{{ f.original_filename }}">
+          {{ f.original_filename }}
+        </td>
+        <td>
+          {% if f.file_kind == 'xls' %}
+            <span class="badge badge-info">XLS</span>
+          {% elif f.file_kind == 'pdf' %}
+            <span class="badge badge-warn">PDF</span>
+          {% else %}
+            <span class="badge">{{ f.file_kind }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if f.direction == 'import' %}
+            <span class="badge badge-info">N</span>
+          {% else %}
+            <span class="badge badge-success">X</span>
+          {% endif %}
+        </td>
+        <td class="num mono">{{ format_int(f.size_bytes) }}</td>
+        <td class="mono">{{ f.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td class="meta">{{ f.uploaded_by or '—' }}</td>
+        <td class="actions" style="white-space: nowrap;">
+          <a class="btn-ghost"
+             href="/clients/{{ client.client_id }}/declarations/files/{{ f.id }}/download">
+            Tải xuống
+          </a>
+          <form method="post" style="display: inline;"
+                action="/clients/{{ client.client_id }}/declarations/files/{{ f.id }}/delete"
+                onsubmit="return confirm('Xóa file {{ f.original_filename }}?')">
+            <button type="submit" class="btn-ghost" style="color: var(--danger);">
+              Xóa
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <p>Chưa có file nào cho tờ khai này.</p>
+  </div>
+  {% endif %}
+
+  <h3 style="margin-top: 2rem;">Tải lên file mới</h3>
+  <form method="post" enctype="multipart/form-data"
+        action="/clients/{{ client.client_id }}/declarations/upload"
+        class="stack-form" style="max-width: 720px;">
+    <input type="hidden" name="declaration_no" value="{{ declaration_no }}">
+    <label>
+      Hướng
+      <select name="direction" required>
+        <option value="import">Nhập khẩu (TKN)</option>
+        <option value="export">Xuất khẩu (TKX)</option>
+      </select>
+    </label>
+    <label>
+      File
+      <input type="file" name="file" required accept=".xls,.xlsx,.pdf">
+    </label>
+    <button type="submit" class="btn-primary">Tải lên</button>
+    <p class="meta" style="margin-top: .5rem;">
+      Tên file nên có dạng <code class="mono">&lt;prefix&gt;_&lt;số TK&gt;.xls</code>
+      (ví dụ: <code class="mono">00000001_{{ declaration_no }}.xls</code>).
+      File XLS được kiểm tra chéo nội dung; PDF chỉ tin tên file.
+    </p>
+  </form>
+</section>
+{% endblock %}

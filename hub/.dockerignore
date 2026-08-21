@@ -1,0 +1,37 @@
+.git
+.gitignore
+.github
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.uv-cache
+.mypy_cache
+.ruff_cache
+node_modules
+
+.ai
+docs
+tests
+deploy
+keys
+.env
+.env.*
+!.env.example
+
+*.md
+!README.md
+!CHANGELOG.md
+*.dump
+*.zip
+
+screenshots
+# data/seeds/ is the C2 reference seed (YAML); keep it in the image.
+# Everything else under data/ is dev-only or runtime-only.
+data/files
+data/seed
+data/screenshots
+data/source_inventory
+data/manual_test

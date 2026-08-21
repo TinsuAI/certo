@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}{{ job.label }} · Việc nền{% endblock %}
+{% block head_extra %}
+{# Auto-refresh trang khi job chưa kết thúc — đỡ phải bấm reload thủ công. #}
+{% if not job.is_terminal %}
+<meta http-equiv="refresh" content="5">
+{% endif %}
+{% endblock %}
+{% block content %}
+{% if client %}
+{% include "_client_nav.html" %}
+{% endif %}
+
+<section class="page-bar">
+  <div class="page-bar-main">
+    <h1>{{ job.label }}</h1>
+    <span class="page-tagline">
+      Việc <span class="mono">#{{ job.id }}</span>
+      {% if client %} · {{ client.name }} (<span class="mono">{{ client.client_id }}</span>){% endif %}
+      {% if job.started_by %} · khởi động bởi <span class="mono">{{ job.started_by }}</span>{% endif %}
+    </span>
+  </div>
+  <div class="page-actions">
+    {% if client %}
+    <a class="btn-ghost" href="/clients/{{ client.client_id }}/catalog">← Danh mục</a>
+    <a class="btn-ghost" href="/clients/{{ client.client_id }}/jobs">Tất cả việc nền</a>
+    {% endif %}
+  </div>
+</section>
+
+{# Một job lỗi phải nói ngay lỗi gì — không chôn ở cuối trang. #}
+{% if job.error_message %}
+<div class="toast toast-error">
+  <strong>Việc chạy lỗi.</strong> Chi tiết ở khối "Chi tiết lỗi" bên dưới.
+</div>
+{% endif %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Trạng thái</h2>
+      <p class="meta">
+        {% if job.status == 'pending' %}Chưa vào hàng đợi xử lý.
+        {% elif job.status == 'running' %}Trang tự refresh mỗi 5 giây.
+        {% elif job.status == 'done' %}Đã chạy xong.
+        {% elif job.status == 'error' %}Dừng giữa chừng vì lỗi.
+        {% elif job.status == 'cancelled' %}Bị hủy trước khi xong.
+        {% endif %}
+      </p>
+    </div>
+    <div class="page-actions">
+      {% if job.status == 'pending' %}
+        <span class="badge badge-muted">Đang chờ</span>
+      {% elif job.status == 'running' %}
+        <span class="badge badge-info">Đang chạy</span>
+      {% elif job.status == 'done' %}
+        <span class="badge badge-success">Xong</span>
+      {% elif job.status == 'error' %}
+        <span class="badge badge-error">Lỗi</span>
+      {% elif job.status == 'cancelled' %}
+        <span class="badge badge-muted">Đã hủy</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <dl class="job-kv">
+    <dt>Việc</dt><dd>#{{ job.id }}</dd>
+    <dt>Bắt đầu</dt><dd>{{ job.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+    {% if job.running_at %}
+    <dt>Vào chạy</dt><dd>{{ job.running_at.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+    {% endif %}
+    {% if job.finished_at %}
+    <dt>Kết thúc</dt><dd>{{ job.finished_at.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+    <dt>Tổng thời gian</dt><dd>{{ '%.0f' % (job.finished_at - job.started_at).total_seconds() }}s</dd>
+    {% endif %}
+    {% if job.started_by %}
+    <dt>Khởi động bởi</dt><dd>{{ job.started_by }}</dd>
+    {% endif %}
+  </dl>
+</section>
+
+{% if job.error_message %}
+<section class="zone">
+  <div class="job-log-head">
+    <h3>Chi tiết lỗi</h3>
+  </div>
+  <pre class="job-log job-log-error">{{ job.error_message }}</pre>
+</section>
+{% endif %}
+
+{% if job.summary and job.status == 'done' %}
+<section class="zone">
+  <div class="job-log-head">
+    <h3>Tóm tắt kết quả</h3>
+  </div>
+  <pre class="job-log">{{ job.summary }}</pre>
+</section>
+{% endif %}
+
+{% if log_tail %}
+<section class="zone">
+  <div class="job-log-head">
+    <h3>Nhật ký (80 dòng cuối)</h3>
+    <span class="job-log-path">{{ job.log_path }}</span>
+  </div>
+  <pre class="job-log">{{ log_tail }}</pre>
+</section>
+{% endif %}
+{% endblock %}

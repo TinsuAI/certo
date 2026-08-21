@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}{{ t('clients.edit_title' if client else 'clients.new_title') }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+{# Trang này tự dựng thanh tiêu đề riêng (có tiêu đề cụ thể hơn), nên không
+   include "_client_nav.html" nữa — nếu include sẽ ra hai thanh tiêu đề chồng
+   nhau. Điều hướng khu làm việc nằm ở thanh bên (_sidebar.html). #}
+
+<form method="post"
+      action="{{ '/clients/' + client.client_id + '/edit' if client else '/clients/new' }}"
+      class="settings-form">
+
+  <section class="page-bar">
+    <div>
+      <h1>{{ t('clients.edit_title' if client else 'clients.new_title') }}</h1>
+      <span class="page-tagline">
+        {% if client %}<span class="mono">{{ client.client_id }}</span>{% endif %}
+      </span>
+    </div>
+    <div class="page-actions">
+      {% if client %}
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/declaration-config">Cấu hình loại hình tờ khai →</a>
+      {% endif %}
+      <a class="btn-secondary" href="{{ '/clients/' + client.client_id if client else '/clients' }}">{{ t('common.cancel') }}</a>
+      <button type="submit" class="btn-primary">{{ t('common.save' if client else 'common.create') }}</button>
+    </div>
+  </section>
+
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('clients.section.identity') }}</h2>
+        <p class="meta">{{ t('clients.section.identity_meta') }}</p>
+      </div>
+    </div>
+    <div class="settings-grid">
+      <label class="field">
+        <span class="field-label">{{ t('clients.field.name') }} <em class="field-required">{{ t('common.required') }}</em></span>
+        <input type="text" name="name" required value="{{ client.name if client else '' }}">
+      </label>
+      <label class="field">
+        <span class="field-label">{{ t('clients.field.tax_code') }} <em class="field-required">{{ t('common.optional') }}</em></span>
+        <input type="text" name="tax_code" value="{{ client.tax_code or '' if client else '' }}" placeholder="0307123456">
+      </label>
+    </div>
+  </section>
+
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('clients.section.code_resolution') }}</h2>
+        <p class="meta">{{ t('clients.section.code_resolution_meta') }}</p>
+      </div>
+      {% if client and not can_edit_technical %}<span class="badge badge-warning">{{ t('clients.field.code_resolution_mode_locked') }}</span>{% endif %}
+      {% if client and can_edit_technical %}<span class="badge badge-info">{{ t('clients.field.code_resolution_mode_dev') }}</span>{% endif %}
+    </div>
+    <div class="settings-grid">
+      <label class="field field-wide">
+        <span class="field-label">{{ t('clients.field.code_resolution_mode') }}</span>
+        <select name="code_resolution_mode" {% if client and not can_edit_technical %}disabled{% endif %}>
+          {% for m in modes %}
+          <option value="{{ m }}"
+            {% if client and client.code_resolution_mode == m %}selected
+            {% elif not client and m == 'simple_mapping' %}selected{% endif %}>{{ t('clients.mode.' + m) }}</option>
+          {% endfor %}
+        </select>
+        {% if client and not can_edit_technical %}<input type="hidden" name="code_resolution_mode" value="{{ client.code_resolution_mode }}">{% endif %}
+      </label>
+    </div>
+  </section>
+
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('clients.section.bom_proposal') }}</h2>
+        <p class="meta">{{ t('clients.section.bom_proposal_meta') }}</p>
+      </div>
+    </div>
+    <div class="settings-grid">
+      <label class="field">
+        <span class="field-label">{{ t('clients.field.bom_proposal_mode') }}</span>
+        <select name="bom_proposal_mode">
+          {% for m in bom_modes %}
+          <option value="{{ m }}"
+            {% if client and client.bom_proposal_mode == m %}selected
+            {% elif not client and m == 'auto' %}selected{% endif %}>{{ t('clients.bom_mode.' + m) }}</option>
+          {% endfor %}
+        </select>
+        <span class="field-hint">{{ t('clients.field.bom_proposal_mode_meta') }}</span>
+      </label>
+      <label class="field">
+        <span class="field-label">{{ t('clients.field.bom_approver_tier') }}</span>
+        <select name="bom_approver_tier">
+          {% for tier in approver_tiers %}
+          <option value="{{ tier }}"
+            {% if client and client.bom_approver_tier == tier %}selected
+            {% elif not client and tier == 'edit' %}selected{% endif %}>{{ t('clients.approver_tier.' + tier) }}</option>
+          {% endfor %}
+        </select>
+        <span class="field-hint">{{ t('clients.field.bom_approver_tier_meta') }}</span>
+      </label>
+      <label class="field">
+        <span class="field-label">{{ t('clients.field.bom_tolerance') }}</span>
+        <input type="number" step="0.001" min="0" max="100" name="bom_proposal_qty_tolerance_pct"
+               value="{{ client.bom_proposal_qty_tolerance_pct if client else 5.0 }}">
+        <span class="field-hint">{{ t('clients.field.bom_tolerance_meta') }}</span>
+      </label>
+    </div>
+  </section>
+
+  {% if client %}
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('clients.section.lifecycle') }}</h2>
+        <p class="meta">{{ t('clients.section.lifecycle_meta') }}</p>
+      </div>
+    </div>
+    <div class="settings-grid">
+      <label class="field">
+        <span class="field-label">{{ t('clients.field.status') }}</span>
+        <select name="status">
+          <option value="active" {% if client.status == 'active' %}selected{% endif %}>{{ t('clients.field.status_active') }}</option>
+          <option value="archived" {% if client.status == 'archived' %}selected{% endif %}>{{ t('clients.field.status_archived') }}</option>
+        </select>
+      </label>
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('clients.section.notes') }}</h2>
+        <p class="meta">{{ t('clients.section.notes_meta') }}</p>
+      </div>
+    </div>
+    <label class="field field-wide">
+      <textarea name="notes" rows="4">{{ client.notes or '' if client else '' }}</textarea>
+    </label>
+  </section>
+
+  <section class="settings-footer">
+    <a class="btn-secondary" href="{{ '/clients/' + client.client_id if client else '/clients' }}">{{ t('common.cancel') }}</a>
+    <button type="submit" class="btn-primary">{{ t('common.save' if client else 'common.create') }}</button>
+  </section>
+</form>
+{% endblock %}

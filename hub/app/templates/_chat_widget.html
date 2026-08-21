@@ -1,0 +1,86 @@
+{# Floating chat widget. Vanilla JS, no framework. It is always
+   client-scoped: client pages bind to that client; global/admin pages
+   use the first visible client and expose a selector. #}
+{% set current_client = client if client is defined and client else none %}
+{% set widget_clients = chat_widget_clients if chat_widget_clients is defined else [] %}
+{% set widget_client = current_client or (widget_clients[0] if widget_clients else none) %}
+{% if widget_client %}
+<div id="chat-widget" class="chat-widget chat-widget-collapsed"
+     data-client-id="{{ widget_client.client_id }}"
+     data-i18n-thinking="{{ t('agent.widget_thinking') }}"
+     data-i18n-empty="{{ t('agent.widget_empty') }}"
+     data-i18n-error="{{ t('agent.widget_error') }}"
+     data-i18n-untitled="{{ t('agent.widget_thread_untitled') }}"
+     data-i18n-rename="{{ t('agent.widget_thread_rename') }}"
+     data-i18n-rename-prompt="{{ t('agent.widget_thread_rename_prompt') }}"
+     data-i18n-delete="{{ t('agent.widget_thread_delete') }}"
+     data-i18n-delete-confirm="{{ t('agent.widget_thread_delete_confirm') }}"
+     data-i18n-no-threads="{{ t('agent.widget_no_threads') }}"
+     data-i18n-msgs="{{ t('agent.widget_msgs_count') }}">
+
+  <button type="button" class="chat-widget-toggle" aria-label="{{ t('agent.widget_open') }}">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22"
+         fill="none" stroke="currentColor" stroke-width="1.7"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    </svg>
+    <span class="chat-widget-toggle-label">{{ t('agent.widget_label') }}</span>
+  </button>
+
+  <div class="chat-widget-panel chat-widget-panel-hidden">
+    <header class="chat-widget-head">
+      <div class="chat-widget-head-title">
+        <strong class="chat-widget-current-title">{{ t('agent.title') }}</strong>
+        <div class="meta">
+          {% if widget_clients|length > 1 %}
+          <select class="chat-widget-client-select" aria-label="{{ t('nav.clients') }}">
+            {% for c in widget_clients %}
+            <option value="{{ c.client_id }}" {% if c.client_id == widget_client.client_id %}selected{% endif %}>
+              {{ c.name }}
+            </option>
+            {% endfor %}
+          </select>
+          {% else %}
+          <span class="badge badge-info">{{ widget_client.client_id }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="chat-widget-head-actions">
+        <button type="button" class="btn-link chat-widget-list"
+                title="{{ t('agent.widget_list_threads') }}">☰</button>
+        <button type="button" class="btn-link chat-widget-new"
+                title="{{ t('agent.widget_new_thread') }}">＋</button>
+        <a class="btn-link chat-widget-open-full" href="/clients/{{ widget_client.client_id }}/agent"
+           title="{{ t('agent.widget_open_full') }}">↗</a>
+        <button type="button" class="btn-link chat-widget-close"
+                aria-label="{{ t('agent.widget_close') }}">✕</button>
+      </div>
+    </header>
+
+    {# View 1: conversation #}
+    <div class="chat-widget-view-conversation">
+      <div class="chat-widget-messages" role="log" aria-live="polite">
+        <p class="chat-widget-empty meta">{{ t('agent.widget_empty') }}</p>
+      </div>
+      <form class="chat-widget-form">
+        <textarea class="chat-widget-input" rows="1"
+                  placeholder="{{ t('agent.widget_placeholder') }}"
+                  aria-label="{{ t('agent.widget_placeholder') }}"></textarea>
+        <button type="submit" class="btn-primary chat-widget-send"
+                aria-label="{{ t('agent.send') }}">→</button>
+      </form>
+    </div>
+
+    {# View 2: threads list #}
+    <div class="chat-widget-view-threads chat-widget-view-hidden">
+      <div class="chat-widget-threads-head">
+        <strong>{{ t('agent.widget_threads_title') }}</strong>
+        <button type="button" class="btn-link chat-widget-back-to-chat"
+                title="{{ t('common.back') }}">←</button>
+      </div>
+      <ul class="chat-widget-threads-list" role="list"></ul>
+    </div>
+  </div>
+</div>
+<script src="/static/js/chat-widget.js" defer></script>
+{% endif %}

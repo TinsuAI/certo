@@ -1,0 +1,76 @@
+{% extends "clients/_upload_preview.html" %}
+
+{% block module_summary %}
+{% if provenance_kind == 'registered' %}
+<div class="callout callout-info">{{ t('catalog.preview_provenance_registered') }}</div>
+{% else %}
+<div class="callout callout-warn">{{ t('catalog.preview_provenance_user_added') }}</div>
+{% endif %}
+
+<div class="upload-card upload-card-wide">
+  <div class="upload-card-head">
+    <h3>Tổng quan</h3>
+    <p>Upsert theo <span class="mono">customs_code</span>.</p>
+  </div>
+  <div class="upload-card-body">
+    <div class="flow-facts">
+      <span class="badge badge-brand">{{ summary.total }} mã thêm/cập nhật</span>
+      <span class="badge badge-muted">{{ summary.n_with_customs_code }} có HQ-code</span>
+      <span class="badge badge-muted">{{ summary.n_with_internal_code }} có internal-code</span>
+    </div>
+    {% if summary.by_category %}
+    <div class="flow-facts">
+      <span>Theo loại:</span>
+      {% for cat, n in summary.by_category.items() %}
+      <span class="badge">{{ cat }}: {{ n }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if summary.by_status and summary.by_status|length > 1 %}
+    <div class="flow-facts">
+      <span>Theo trạng thái:</span>
+      {% for st, n in summary.by_status.items() %}
+      <span class="badge">{{ st }}: {{ n }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block module_sample %}
+<div class="upload-card upload-card-wide">
+  <div class="upload-card-head">
+    <h3>Mẫu {{ sample_rows|length }} dòng đầu</h3>
+    <p>Trên tổng {{ summary.total }} dòng.</p>
+  </div>
+  <div class="mapping-raw-scroll">
+    <table class="data-table dense">
+      <thead>
+        <tr>
+          <th>Mã HQ</th>
+          <th>Mã nội bộ</th>
+          <th>Tên</th>
+          <th>Loại</th>
+          <th>ĐVT</th>
+          <th>HS</th>
+          <th>Trạng thái</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in sample_rows %}
+        <tr>
+          <td class="mono">{{ r.customs_code or "—" }}</td>
+          <td class="mono">{{ r.internal_code or "—" }}</td>
+          <td>{{ r.name or "" }}</td>
+          <td><span class="badge badge-muted">{{ r.category }}</span></td>
+          <td>{{ r.unit or "" }}</td>
+          <td class="mono">{{ r.hs_code or "" }}</td>
+          <td>{{ r.status or "active" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,110 @@
+{% extends "clients/_upload_preview.html" %}
+
+{% block module_summary %}
+{% if will_flatten %}
+<div class="callout callout-info">
+  <strong>BOM kỹ thuật (nhiều cấp).</strong> Khi xác nhận, hệ thống sẽ lưu
+  bản gốc và <strong>tự động sinh BOM phẳng</strong> (shallow + full_flat).
+</div>
+{% else %}
+<div class="callout callout-info">
+  <strong>BOM phẳng.</strong> Khi xác nhận, dữ liệu được lưu nguyên trạng —
+  <strong>không phân rã thêm cấp</strong>.
+</div>
+{% endif %}
+{% if multi_level_flat %}
+<div class="callout callout-error">
+  Phát hiện cấu trúc <strong>nhiều cấp</strong> trong file nhưng đang lưu ở
+  dạng <strong>phẳng</strong> — sẽ KHÔNG sinh BOM phẳng phân rã. Nếu đây là BOM
+  kỹ thuật, hãy reject và tải lại với parser <code>technical_raw</code>
+  (hoặc để <code>Tự động phát hiện</code>).
+</div>
+{% endif %}
+{% if multirole_warnings %}
+<div class="callout callout-error">
+  <strong>Cảnh báo đa vai trò.</strong> {{ multirole_warnings|length }} mã trong
+  file đã từng được <strong>xuất khẩu</strong> trong BCCT nhưng ở đây đang được
+  dùng làm <strong>thành phần (BTP)</strong> trong BOM — tạo tình huống một mã vừa
+  là thành phẩm vừa là bán thành phẩm. Hãy xác nhận đây là chủ đích.
+  <ul style="margin: 0.4rem 0 0 1.1rem;">
+    {% for w in multirole_warnings[:10] %}
+    <li><code>{{ w.code }}</code> — đã xuất khẩu {{ w.export_count }} dòng
+      ({{ w.export_declarations }} tờ khai)</li>
+    {% endfor %}
+    {% if multirole_warnings|length > 10 %}
+    <li>… và {{ multirole_warnings|length - 10 }} mã khác.</li>
+    {% endif %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="upload-card upload-card-wide">
+  <div class="upload-card-head">
+    <h3>Tổng quan</h3>
+    <p>Profile <span class="mono">{{ profile }}</span>.</p>
+  </div>
+  <div class="upload-card-body">
+    <div class="flow-facts">
+      <span class="badge badge-brand">{{ summary.n_products }} sản phẩm</span>
+      <span class="badge badge-muted">{{ summary.n_rows }} dòng NPL</span>
+      <span class="badge badge-muted">{{ summary.n_distinct_materials }} mã NPL phân biệt</span>
+      {% if summary.n_with_qty == 0 %}
+      <span class="badge badge-warning">0 dòng có định mức</span>
+      {% else %}
+      <span class="badge badge-success">{{ summary.n_with_qty }} dòng có định mức</span>
+      {% endif %}
+    </div>
+    {% if summary.n_with_qty == 0 %}
+    <p class="meta">
+      Không có dòng nào có qty &gt; 0 — nếu file không phải định mức (chỉ là
+      danh sách thành phần), hãy reject.
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block module_sample %}
+{% set ns_pv = namespace(any_variant=false) %}
+{% for s in sample %}{% for r in s.rows %}
+  {% if r.bom_variant_id and r.bom_variant_id != 'default' %}{% set ns_pv.any_variant = true %}{% endif %}
+{% endfor %}{% endfor %}
+<div class="upload-card upload-card-wide">
+  <div class="upload-card-head">
+    <h3>Mẫu {{ sample|length }} sản phẩm đầu tiên</h3>
+    <p>Cấu trúc mã SP × NPL.</p>
+  </div>
+  {% for s in sample %}
+  <div class="upload-card-body">
+    <div class="flow-facts">
+      <strong>SP</strong> <code class="mono">{{ s.product_code }}</code>
+      <span class="badge badge-muted">{{ s.n_rows }} dòng NPL{% if s.rows|length < s.n_rows %} · hiển thị {{ s.rows|length }}{% endif %}</span>
+    </div>
+  </div>
+  <div class="mapping-raw-scroll">
+    <table class="data-table dense">
+      <thead>
+        <tr>
+          <th>Mã NPL</th>
+          <th class="num">Định mức</th>
+          <th>ĐVT</th>
+          <th>BOM code</th>
+          {% if ns_pv.any_variant %}<th>{{ t('bom.col.variant') }}</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in s.rows %}
+        <tr>
+          <td class="mono">{{ r.material_code }}</td>
+          <td class="num">{{ r.qty_per_unit }}</td>
+          <td>{{ r.uom or "—" }}</td>
+          <td class="mono">{{ r.bom_code or "" }}</td>
+          {% if ns_pv.any_variant %}<td class="mono">{% if r.bom_variant_id and r.bom_variant_id != 'default' %}{{ r.bom_variant_id }}{% endif %}</td>{% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

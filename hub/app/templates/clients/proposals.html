@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}{{ t('proposals.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+{% from "clients/_metric_dash.html" import metric_dash %}
+{{ metric_dash(dash_cards) }}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('proposals.title') }}</h2>
+      <p class="meta">{{ t('proposals.subtitle') }}</p>
+    </div>
+    <div>
+      <span class="badge badge-muted">{{ t('clients.field.bom_proposal_mode') }}: {{ t('clients.proposal_mode.' + client.bom_proposal_mode) }}</span>
+    </div>
+  </div>
+
+  <div class="chip-row">
+    <a class="chip {{ 'chip-active' if not status else '' }}"
+       href="/clients/{{ client.client_id }}/proposals">{{ t('common.all') }} ({{ counts.values()|sum }})</a>
+    {% if counts.get('pending') %}
+    <a class="chip {{ 'chip-active' if status == 'pending' else '' }}"
+       href="/clients/{{ client.client_id }}/proposals?status=pending">{{ t('proposals.status_pending') }} ({{ counts.get('pending') }})</a>
+    {% endif %}
+    <a class="chip {{ 'chip-active' if status == 'approved' else '' }}"
+       href="/clients/{{ client.client_id }}/proposals?status=approved">{{ t('proposals.status_approved') }} ({{ counts.get('approved', 0) }})</a>
+    <a class="chip {{ 'chip-active' if status == 'rejected' else '' }}"
+       href="/clients/{{ client.client_id }}/proposals?status=rejected">{{ t('proposals.status_rejected') }} ({{ counts.get('rejected', 0) }})</a>
+    {% if counts.get('withdrawn') %}
+    <a class="chip {{ 'chip-active' if status == 'withdrawn' else '' }}"
+       href="/clients/{{ client.client_id }}/proposals?status=withdrawn">{{ t('proposals.status_withdrawn') }} ({{ counts.get('withdrawn') }})</a>
+    {% endif %}
+  </div>
+
+  {% if items %}
+  <div class="table-wrap">
+  <table class="dh-table dense">
+    <thead><tr>
+      <th>{{ t('proposals.col.id') }}</th>
+      <th>{{ t('proposals.col.product') }}</th>
+      <th>{{ t('bom.col.actor') }}</th>
+      <th>{{ t('bom.col.intent') }}</th>
+      <th>{{ t('bom.col.parent') }}</th>
+      <th>{{ t('common.status') }}</th>
+      <th>{{ t('proposals.col.reason') }}</th>
+      <th>{{ t('common.created') }}</th>
+      <th></th>
+    </tr></thead>
+    <tbody>
+      {% for p in items %}
+      <tr data-row-href="/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}" tabindex="0">
+        <td class="mono">{{ p.proposal_id[:14] }}…</td>
+        <td class="mono">{{ p.product_code }}</td>
+        <td><span class="badge badge-muted">{{ p.actor }}</span></td>
+        <td><span class="badge badge-info">{{ p.intent }}</span></td>
+        <td class="mono">{{ p.parent_artifact_id[:12] + '…' if p.parent_artifact_id else '—' }}</td>
+        <td>
+          {% if p.status == 'pending' %}<span class="badge badge-warning">{{ t('proposals.status_pending') }}</span>
+          {% elif p.status == 'approved' %}<span class="badge badge-success">{{ t('proposals.status_approved') }}</span>
+          {% elif p.status == 'rejected' %}<span class="badge badge-critical">{{ t('proposals.status_rejected') }}</span>
+          {% elif p.status == 'withdrawn' %}<span class="badge badge-muted">{{ t('proposals.status_withdrawn') }}</span>
+          {% else %}<span class="badge badge-muted">{{ p.status }}</span>{% endif %}
+        </td>
+        <td>{{ p.decision_reason or '' }}</td>
+        <td class="mono">{{ p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else '' }}</td>
+        <td>
+          {% if p.status == 'pending' and can_approve %}
+          <a class="btn-primary btn-xs"
+             href="/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}">{{ t('proposals.review_action') }}</a>
+          {% else %}
+          <a class="btn-ghost btn-xs"
+             href="/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}">{{ t('common.detail') }} →</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p>{{ t('proposals.empty') }}</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,5 @@
+project_name: data-hub
+project_root: /home/vp/workspace/client/data-hub
+project_type: app
+template_name: app
+initialized_by: ai-init

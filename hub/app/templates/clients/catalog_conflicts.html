@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% from "_format.html" import format_date %}
+{% from "_sort.html" import sort_th %}
+{% block title %}Conflicts · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+{% include "clients/_staleness_bar.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Conflicts cần review</h2>
+      <p class="meta">
+        Mỗi dòng là một vật tư mà khai báo của staff không khớp với
+        dữ liệu quan sát từ BCCT + BOM. Resolve bằng cách sửa khai báo
+        (cột <em>category</em> hoặc <em>btp_sourcing</em>) cho khớp
+        quan sát — hoặc xác nhận khai báo đúng và điều chỉnh observed
+        nguồn (BCCT/BOM ingest).
+      </p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-ghost" href="/clients/{{ client.client_id }}/catalog">← Catalog</a>
+    </div>
+  </div>
+
+  <div class="conflict-summary" style="margin: 0.5rem 0 1rem;">
+    <span class="badge badge-error" style="font-size: 1em;">
+      {{ conflict_counts.total }} dòng conflict
+    </span>
+    <span class="meta" style="margin-left: 0.5rem;">
+      ({{ conflict_counts.declared }} khai báo ≠ quan sát ·
+       {{ conflict_counts.sourcing }} nguồn cung ≠ quan sát)
+    </span>
+  </div>
+
+  <div class="chip-row" aria-label="Conflict type filter">
+    <a class="chip {{ 'chip-active' if active_conflict_type == 'all' else '' }}"
+       href="/clients/{{ client.client_id }}/catalog/conflicts">
+      Tất cả ({{ conflict_counts.total }})
+    </a>
+    <a class="chip {{ 'chip-active' if active_conflict_type == 'declared' else '' }}"
+       href="/clients/{{ client.client_id }}/catalog/conflicts?type=declared">
+      Khai báo ≠ quan sát ({{ conflict_counts.declared }})
+    </a>
+    <a class="chip {{ 'chip-active' if active_conflict_type == 'sourcing' else '' }}"
+       href="/clients/{{ client.client_id }}/catalog/conflicts?type=sourcing">
+      Nguồn cung ≠ quan sát ({{ conflict_counts.sourcing }})
+    </a>
+  </div>
+
+  <form method="get" action="/clients/{{ client.client_id }}/catalog/conflicts"
+        class="stack-form" style="max-width: 600px; margin: 1rem 0;">
+    {% if active_conflict_type and active_conflict_type != 'all' %}
+      <input type="hidden" name="type" value="{{ active_conflict_type }}">
+    {% endif %}
+    {% if active_category %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
+    {% if active_provenance %}<input type="hidden" name="provenance" value="{{ active_provenance }}">{% endif %}
+    <input type="search" name="q" value="{{ q }}"
+           placeholder="Tìm theo mã / tên / HS...">
+  </form>
+
+  {% if items %}
+  <table class="dh-table">
+    <thead>
+      <tr>
+        {{ sort_th('material_code', 'Mã vật tư', sort=sort, sort_link=sort_link) }}
+        <th>Loại</th>
+        {{ sort_th('name', 'Tên', sort=sort, sort_link=sort_link) }}
+        <th>Khai báo</th>
+        <th>Vai trò quan sát</th>
+        <th>Xác nhận nguồn cung</th>
+        <th>Gợi ý</th>
+        <th>Conflict</th>
+        <th>Hành động</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in items %}
+      {% set return_to = '/clients/' ~ client.client_id ~ '/catalog/conflicts'
+        ~ ('?type=' ~ active_conflict_type if active_conflict_type and active_conflict_type != 'all' else '') %}
+      <tr>
+        <td class="mono">
+          <a href="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/detail"
+             title="Xem chi tiết">{{ m.material_code }}</a>
+        </td>
+        <td>
+          {% if m.code_kind == 'nb' %}<span class="badge badge-nb">NB</span>
+          {% elif m.code_kind == 'hq' %}<span class="badge badge-hq">HQ</span>
+          {% elif m.code_kind == 'unified' %}<span class="badge badge-unified">TN</span>
+          {% else %}<span class="meta">—</span>{% endif %}
+        </td>
+        <td style="max-width: 28ch;">
+          <span title="{{ m.name or '' }}"
+                style="display: inline-block; max-width: 28ch; overflow: hidden;
+                       text-overflow: ellipsis; white-space: nowrap;">
+            {{ m.name or '' }}
+          </span>
+        </td>
+        <td style="text-align: center;">
+          <span class="badge badge-info">{{ m.category }}</span>
+        </td>
+        <td style="text-align: center;">
+          {% if m.observed_roles %}
+            {% for role in m.observed_roles %}
+              <span class="badge badge-observed mono"
+                    style="font-size:.78em">{{ role }}</span>
+            {% endfor %}
+          {% else %}<span class="meta">—</span>{% endif %}
+        </td>
+        <td style="text-align: center;">
+          {% if m.btp_sourcing and m.btp_sourcing not in ('unknown', '') %}
+            <span class="mono" style="font-size:.85em">{{ m.btp_sourcing }}</span>
+          {% else %}
+            <span class="meta">— Chưa xác nhận</span>
+          {% endif %}
+          {% if m.category == 'btp_sx' %}
+            <form method="post"
+                  action="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/btp_sourcing"
+                  style="margin-top:.25em">
+              <input type="hidden" name="return_to" value="{{ return_to }}">
+              <select name="btp_sourcing" onchange="this.form.submit()"
+                      class="mono" style="font-size:.8em;">
+                <option value="unknown"
+                  {{ 'selected' if m.btp_sourcing in (none, '', 'unknown') else '' }}>— Đổi —</option>
+                <option value="self_produced_only"
+                  {{ 'selected' if m.btp_sourcing == 'self_produced_only' else '' }}>Tự SX</option>
+                <option value="purchased_only"
+                  {{ 'selected' if m.btp_sourcing == 'purchased_only' else '' }}>Mua ngoài</option>
+                <option value="dual_source"
+                  {{ 'selected' if m.btp_sourcing == 'dual_source' else '' }}>Đa nguồn</option>
+              </select>
+            </form>
+          {% endif %}
+        </td>
+        <td style="text-align: center;">
+          {% if m.suggested_sourcing %}
+            <span class="badge badge-info mono"
+                  style="font-size:.8em">{{ m.suggested_sourcing }}</span>
+          {% else %}<span class="meta">—</span>{% endif %}
+        </td>
+        <td>
+          {% if m.declared_observed_conflict %}
+            <span class="badge badge-error" style="font-size:.75em">
+              ⚠ Khai báo
+            </span>
+          {% endif %}
+          {% if m.sourcing_conflict %}
+            <span class="badge badge-error" style="font-size:.75em">
+              ⚠ Nguồn
+            </span>
+          {% endif %}
+        </td>
+        <td>
+          <a class="btn-ghost" style="font-size:.85em"
+             href="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/edit">
+            Sửa khai báo
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include "clients/_pagination.html" %}
+  {% else %}
+  <div class="empty-state">
+    {% if conflict_counts.total == 0 %}
+    <p>✓ Không có conflict nào. Mọi khai báo đều khớp với quan sát.</p>
+    {% else %}
+    <p>Không có conflict khớp với bộ lọc hiện tại.</p>
+    <a class="btn-ghost"
+       href="/clients/{{ client.client_id }}/catalog/conflicts">Xóa bộ lọc</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+
+<style>
+.badge-observed { background: #f3f4f6; color: #4b5563; border: 1px dashed #d1d5db; }
+.badge-error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+</style>
+{% endblock %}

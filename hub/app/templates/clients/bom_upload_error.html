@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Lỗi nhập BOM · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Không nhập được file BOM</h2>
+      <p class="meta">File chưa được lưu thành BOM. Không có dữ liệu nào bị thay đổi.</p>
+    </div>
+    <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">{{ t('common.cancel') }}</a></div>
+  </div>
+
+  <div class="toast toast-error" style="margin-bottom: 1rem;">
+    ⚠ <strong>Parser không đọc được file.</strong>
+    <p style="margin: 0.4rem 0 0 0;">{{ message }}</p>
+  </div>
+
+  <div class="zone mini-panel" style="max-width: 720px;">
+    <strong>Cách xử lý:</strong>
+    <ul style="margin: 0.5rem 0 0 1.2rem;">
+      <li>Kiểm tra lại file có đúng định dạng BOM (mã SP × NPL × định mức).</li>
+      <li>Nếu <code>Tự động phát hiện</code> chọn sai, hãy
+        <strong>tải lại và chọn parser cụ thể</strong> ở dropdown.</li>
+      <li>File có thể nằm ngoài 5 shape Data Hub hỗ trợ — liên hệ Tinsu AI
+        để thêm adapter mới.</li>
+    </ul>
+    <div style="margin-top: 1rem;">
+      <a class="btn-primary" href="/clients/{{ client.client_id }}/bom/upload">Tải lại file</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

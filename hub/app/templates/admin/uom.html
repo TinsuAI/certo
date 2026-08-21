@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}UoM standards · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+{% include "_admin_nav.html" %}
+<section class="page-bar">
+  <div class="page-bar-main">
+    <h1>Chuẩn đơn vị tính</h1>
+    <span class="page-tagline">
+      Đơn vị chuẩn (canonical) + cách viết khác (alias), nhóm theo family. Quy đổi
+      số học chỉ xảy ra trong cùng family.
+    </span>
+  </div>
+  <div class="page-actions">
+    <span class="badge badge-muted">{{ n_families }} family</span>
+    <span class="badge badge-muted">{{ canonicals|length }} canonical</span>
+    <span class="badge badge-muted">{{ aliases|length }} alias</span>
+  </div>
+</section>
+
+<section class="zone uom-admin">
+
+  {% if saved %}<div class="toast toast-success">✓ Đã lưu.</div>{% endif %}
+  {% if error %}<div class="toast toast-error">⚠ {{ error }}</div>{% endif %}
+
+  <div class="uom-legend">
+    <span><b>Canonical</b> — đơn vị chuẩn (vd <code>kg</code>, <code>pcs</code>).</span>
+    <span><b>Alias</b> — cách viết khác của cùng đơn vị: <code>PCS = piece = cái</code> đều trỏ về <code>pcs</code>.</span>
+    <span><b>Quy đổi</b> — trong family <i>đo lường</i> (mass/length/area/volume) đổi qua đơn vị gốc:
+      <code>1 cm = 0.01 m</code>. Family <i>đếm</i> (count/đóng gói/assembly) coi như 1:1, không quy đổi số học.</span>
+    <span class="uom-legend-x">Cần hệ số quy đổi <b>khác family</b> hoặc riêng theo client?
+      → mở khách hàng → <b>Cấu hình → Hệ số UoM</b>.</span>
+  </div>
+
+  <div class="uom-controls">
+    <div class="uom-search-wrap">
+      <input id="uom-search" class="uom-search" type="search" autocomplete="off"
+             placeholder="Tìm code · family · alias…">
+    </div>
+    <div class="page-actions">
+      <button type="button" class="btn-secondary btn-sm" data-toggle="add-canonical">＋ Canonical</button>
+      <button type="button" class="btn-secondary btn-sm" data-toggle="add-alias">＋ Alias</button>
+    </div>
+  </div>
+
+  {# ── Add canonical (toggled) ── #}
+  <form id="add-canonical" class="uom-addform" method="post"
+        action="/admin/uom/canonical/new" hidden>
+    <div class="uom-addform-head">Thêm canonical mới</div>
+    <div class="uom-addform-row">
+      <label>Code<input type="text" name="uom_code" required placeholder="vd: pallet"></label>
+      <label>Family
+        <select name="family" required>
+          {% for f in valid_families %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Base factor<input type="number" name="base_factor" value="1" step="any" required></label>
+      <button type="submit" class="btn-primary btn-sm">Lưu</button>
+    </div>
+    <p class="meta">Base factor = <b>1 đơn vị này = ? đơn vị gốc</b> của family (kg=1, g=0.001, t=1000).
+       Đơn vị gốc của family hoặc family đếm → để 1.</p>
+  </form>
+
+  {# ── Add alias (toggled) ── #}
+  <form id="add-alias" class="uom-addform" method="post"
+        action="/admin/uom/aliases/new" hidden>
+    <div class="uom-addform-head">Thêm alias mới</div>
+    <div class="uom-addform-row">
+      <label>Alias<input type="text" name="alias_norm" required placeholder="vd: kilo-grammes (tự lowercase)"></label>
+      <label>→ Canonical
+        <select name="uom_code" required>
+          {% for c in canonicals %}<option value="{{ c.uom_code }}">{{ c.uom_code }} · {{ c.family }}</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="btn-primary btn-sm">Lưu</button>
+    </div>
+    <p class="meta">Alias tự normalize: lowercase + trim. Alias đã tồn tại sẽ được trỏ lại canonical mới.</p>
+  </form>
+
+  {# ── Family-grouped table ── #}
+  <table class="data-table dense uom-table">
+    <thead>
+      <tr>
+        <th class="uom-exp-h" aria-hidden="true"></th>
+        <th>Code</th>
+        <th>Quy đổi về đơn vị gốc</th>
+        <th>Alias (cách viết khác)</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for fam in families %}
+      <tr class="uom-fam-head" data-fam="{{ fam.name }}">
+        <td></td>
+        <td colspan="3">
+          <span class="uom-fam-name mono">{{ fam.name }}</span>
+          {% if fam.is_count %}
+            <span class="uom-fam-note">đơn vị đếm rời · coi như 1:1 trong nhóm · không quy đổi số học</span>
+          {% else %}
+            <span class="uom-fam-note">đo lường · quy đổi qua gốc <code>{{ fam.base_unit or '?' }}</code></span>
+          {% endif %}
+          <span class="uom-fam-count">{{ fam.n }} đơn vị</span>
+        </td>
+      </tr>
+      {% for c in fam.canonicals %}
+      <tr class="uom-row" data-code="{{ c.uom_code }}" data-fam="{{ fam.name }}"
+          data-search="{{ c.uom_code }} {{ fam.name }} {{ c.aliases|join(' ') }}">
+        <td class="uom-exp"><span class="uom-exp-btn" aria-hidden="true">▸</span></td>
+        <td>
+          <code class="uom-code">{{ c.uom_code }}</code>
+          {% if c.is_base and not fam.is_count %}<span class="badge badge-brand uom-base-badge" title="Đơn vị gốc của family">gốc</span>{% endif %}
+        </td>
+        <td class="uom-conv">
+          {%- if fam.is_count %}<span class="meta">— (đếm)</span>
+          {%- elif c.is_base %}<span class="meta">đơn vị gốc (×1)</span>
+          {%- elif fam.base_unit %}<span class="mono">1 {{ c.uom_code }} = {{ c.factor_disp }} {{ fam.base_unit }}</span>
+          {%- else %}<span class="meta">—</span>{% endif %}
+        </td>
+        <td class="uom-alias-cell">
+          {% if c.aliases %}
+            {% for a in c.aliases[:6] %}<span class="uom-chip-sm mono">{{ a }}</span>{% endfor %}
+            {% if c.aliases|length > 6 %}<span class="meta">+{{ c.aliases|length - 6 }}</span>{% endif %}
+          {% else %}<span class="meta">—</span>{% endif %}
+        </td>
+      </tr>
+      <tr class="uom-detail" data-detail="{{ c.uom_code }}" hidden>
+        <td></td>
+        <td colspan="3">
+          <div class="uom-detail-grid">
+            <div class="uom-detail-block">
+              <span class="fld-group-title">Sửa canonical</span>
+              <div class="uom-edit-actions">
+                <form method="post" action="/admin/uom/canonical/{{ c.uom_code|urlencode }}/update" class="uom-inline-form">
+                  <code class="uom-code uom-code-fixed">{{ c.uom_code }}</code>
+                  <label class="uom-mini">family
+                    <select name="family">
+                      {% for f in valid_families %}<option value="{{ f }}" {% if f == fam.name %}selected{% endif %}>{{ f }}</option>{% endfor %}
+                    </select></label>
+                  <label class="uom-mini">base factor <small>(1 đv này = ? gốc)</small>
+                    <input type="number" name="base_factor" step="any" value="{{ c.factor_disp }}"></label>
+                  <button type="submit" class="btn-xs btn-primary">Lưu</button>
+                </form>
+                <form method="post" action="/admin/uom/canonical/{{ c.uom_code|urlencode }}/delete"
+                      class="uom-inline-form"
+                      onsubmit="return confirm('Xóa canonical {{ c.uom_code }}{% if c.aliases %} và {{ c.aliases|length }} alias{% endif %}? Dữ liệu đang dùng đơn vị này sẽ trở thành alias lạ.')">
+                  <button type="submit" class="btn-xs btn-danger uom-danger" title="Xóa canonical">Xóa</button>
+                </form>
+              </div>
+            </div>
+
+            <div class="uom-detail-block">
+              <span class="fld-group-title">Alias ({{ c.aliases|length }})</span>
+              <div class="uom-chips">
+                {% for a in c.aliases %}
+                  <span class="uom-chip-sm mono uom-chip-del">{{ a }}<form method="post"
+                        action="/admin/uom/aliases/{{ a|urlencode }}/delete"
+                        onsubmit="return confirm('Xóa alias {{ a }}?')"><button type="submit"
+                        class="uom-chip-x" title="Xóa alias">×</button></form></span>
+                {% else %}
+                  <span class="meta">Chưa có alias riêng (ngoài self).</span>
+                {% endfor %}
+              </div>
+              <form method="post" action="/admin/uom/aliases/new" class="uom-inline-form">
+                <input type="hidden" name="uom_code" value="{{ c.uom_code }}">
+                <input type="text" name="alias_norm" placeholder="thêm alias…">
+                <button type="submit" class="btn-xs btn-secondary">+ Alias</button>
+              </form>
+            </div>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="meta uom-no-results" hidden>Không có canonical nào khớp.</p>
+</section>
+
+<script>
+(function () {
+  var root = document.querySelector(".uom-admin");
+  if (!root) return;
+  var esc = function (s) { return window.CSS && CSS.escape ? CSS.escape(s) : s; };
+
+  // Expand / collapse a canonical's detail row.
+  root.querySelectorAll(".uom-row").forEach(function (row) {
+    row.addEventListener("click", function (e) {
+      if (e.target.closest("a, button, input, select, form")) return;
+      var detail = root.querySelector('.uom-detail[data-detail="' + esc(row.getAttribute("data-code")) + '"]');
+      if (!detail) return;
+      if (detail.hasAttribute("hidden")) { detail.removeAttribute("hidden"); row.classList.add("is-open"); }
+      else { detail.setAttribute("hidden", ""); row.classList.remove("is-open"); }
+    });
+  });
+
+  // Live search over code / family / aliases; hide empty family headers.
+  var search = document.getElementById("uom-search");
+  var noRes = root.querySelector(".uom-no-results");
+  function applySearch() {
+    var q = search.value.trim().toLowerCase();
+    var any = false;
+    var shownByFam = {};
+    root.querySelectorAll(".uom-row").forEach(function (row) {
+      var hit = !q || row.getAttribute("data-search").toLowerCase().indexOf(q) !== -1;
+      row.hidden = !hit;
+      if (hit) { any = true; shownByFam[row.getAttribute("data-fam")] = true; }
+      else {
+        row.classList.remove("is-open");
+        var d = root.querySelector('.uom-detail[data-detail="' + esc(row.getAttribute("data-code")) + '"]');
+        if (d) d.setAttribute("hidden", "");
+      }
+    });
+    root.querySelectorAll(".uom-fam-head").forEach(function (h) {
+      h.hidden = !shownByFam[h.getAttribute("data-fam")];
+    });
+    if (noRes) noRes.hidden = any;
+  }
+  if (search) search.addEventListener("input", applySearch);
+
+  // Toggle the add-canonical / add-alias forms.
+  root.querySelectorAll("[data-toggle]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var el = document.getElementById(btn.getAttribute("data-toggle"));
+      if (!el) return;
+      if (el.hasAttribute("hidden")) { el.removeAttribute("hidden"); var f = el.querySelector("input, select"); if (f) f.focus(); }
+      else el.setAttribute("hidden", "");
+    });
+  });
+})();
+</script>
+{% endblock %}

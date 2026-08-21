@@ -1,0 +1,20 @@
+{# Shared sort_th macro: sortable column header with active-state arrow.
+
+   Usage:
+     {% from "_sort.html" import sort_th %}
+     {{ sort_th('declaration_no', 'Số tờ khai', sort=sort, sort_link=sort_link) }}
+
+   Caller must pass `sort` (with .column / .direction) and `sort_link` (callable
+   returning href for a given column key). #}
+
+{% macro sort_th(col, label, sort, sort_link, attrs='') -%}
+  {%- set is_active = sort.column == col -%}
+  <th class="sortable {% if is_active %}sort-active{% endif %}" {{ attrs|safe }}>
+    <a href="{{ sort_link(col) }}" title="Sắp xếp theo {{ label }}">
+      {{ label }}
+      {%- if is_active %}
+        <span class="sort-arrow">{% if sort.direction == 'asc' %}▲{% else %}▼{% endif %}</span>
+      {%- endif %}
+    </a>
+  </th>
+{%- endmacro %}

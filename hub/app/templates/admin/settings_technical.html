@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}Cài đặt kỹ thuật · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+{% include "_admin_nav.html" %}
+<section class="page-bar">
+  <div class="page-bar-main">
+    <h1>Cài đặt kỹ thuật</h1>
+    <span class="page-tagline">LLM endpoint, model, API key, Chat Agent. Chỉ <code>dev</code>-role.</span>
+  </div>
+</section>
+
+{% if saved %}
+<div class="toast toast-success">Đã lưu cài đặt.</div>
+{% endif %}
+
+{% if fetch_error %}
+<div class="toast toast-error">
+  Không lấy được danh sách models từ endpoint: <code>{{ fetch_error }}</code>.
+  Kiểm tra <code>Base URL</code> (có cần <code>/v1</code> ở cuối không?) và API key.
+</div>
+{% elif models %}
+<div class="toast toast-success">
+  Endpoint trả {{ models|length }} model{% if models|length > 1 %}s{% endif %}.
+  {% if values.llm_model %}Đang dùng <code>{{ values.llm_model }}</code>.{% endif %}
+</div>
+{% endif %}
+
+<form method="post" action="/admin/settings/technical" class="settings-form">
+  <section class="zone">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('admin.settings.group.chat_agent') }}</h2>
+        <p class="meta">
+          Khi parser cứng từ chối file Excel mới, hub gọi LLM để đề xuất column
+          mapping. Mapping được cache theo <code>(client_id, module,
+          file_signature)</code> sau khi staff confirm.
+        </p>
+      </div>
+    </div>
+    <label class="checkbox-label">
+      <input type="checkbox" name="chat_agent_enabled" value="true"
+             {% if values.chat_agent_enabled != 'false' %}checked{% endif %}>
+      <span>
+        <strong>Bật Chat Agent</strong>
+        <span class="meta">Hiển thị tab Trợ lý, widget chat, và cho phép gọi các endpoint agent.</span>
+      </span>
+    </label>
+  </section>
+
+  <section class="zone">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('admin.settings.group.llm_endpoint') }}</h2>
+        <p class="meta">
+          Hub gọi endpoint OpenAI-compat (Anthropic OAI shim, OpenAI, vLLM,
+          Ollama, OpenRouter, LM Studio, …). Sau khi điền Base URL + API key,
+          bấm <strong>Lưu</strong> — hub tự gọi <code>GET /models</code>, liệt kê
+          model có sẵn và auto-pick model đầu tiên nếu chưa có.
+        </p>
+      </div>
+    </div>
+    <div class="settings-grid">
+      <div class="field field-wide">
+        <label for="llm_base_url">Base URL</label>
+        <input type="text" id="llm_base_url" name="llm_base_url" class="mono"
+               value="{{ values.llm_base_url }}"
+               placeholder="https://api.anthropic.com/v1, http://192.168.1.88:2455/v1, …">
+        <span class="field-hint">Endpoint OpenAI-compat. Phải có <code>/v1</code> ở cuối nếu server theo chuẩn OpenAI.</span>
+      </div>
+
+      <div class="field">
+        <label for="llm_model">Model</label>
+        {% if models %}
+          <select id="llm_model" name="llm_model">
+            {% for m in models %}
+              <option value="{{ m }}" {% if m == values.llm_model %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+            {% if values.llm_model and values.llm_model not in models %}
+              <option value="{{ values.llm_model }}" selected>{{ values.llm_model }} (custom — không có trong danh sách)</option>
+            {% endif %}
+          </select>
+          <span class="field-hint">{{ models|length }} model nhận được từ endpoint.</span>
+        {% else %}
+          <input type="text" id="llm_model" name="llm_model" class="mono"
+                 value="{{ values.llm_model }}"
+                 placeholder="claude-sonnet-4-6, gpt-4o-mini, …" list="model_suggestions">
+          <span class="field-hint">
+            Lưu base_url + api_key trước; hub sẽ tự fetch danh sách model. Hoặc gõ
+            tay nếu endpoint không expose <code>/models</code>.
+          </span>
+        {% endif %}
+      </div>
+
+      <div class="field">
+        <label for="llm_api_key">API Key</label>
+        <input type="password" id="llm_api_key" name="llm_api_key"
+               placeholder="{% if api_key_set %}(đã lưu — để trống để giữ nguyên){% else %}sk-...{% endif %}">
+        <span class="field-hint">Submit trống để giữ giá trị hiện tại; nhập mới để overwrite.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="zone">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('admin.settings.group.llm_limits') }}</h2>
+        <p class="meta">Áp dụng toàn cục cho mọi client; budget tính riêng theo từng client mỗi ngày.</p>
+      </div>
+    </div>
+    <div class="settings-grid">
+      <div class="field">
+        <label for="llm_temperature">Temperature</label>
+        <input type="text" id="llm_temperature" name="llm_temperature"
+               value="{{ values.llm_temperature }}" class="mono">
+        <span class="field-hint">{{ t('admin.tech.temperature_hint') }}</span>
+      </div>
+
+      <div class="field">
+        <label for="llm_timeout_s">Timeout (s)</label>
+        <input type="number" id="llm_timeout_s" name="llm_timeout_s" class="mono"
+               value="{{ values.llm_timeout_s }}" min="5" max="120">
+        <span class="field-hint">{{ t('admin.tech.timeout_hint') }}</span>
+      </div>
+
+      <div class="field">
+        <label for="llm_max_retries">Max retries</label>
+        <input type="number" id="llm_max_retries" name="llm_max_retries" class="mono"
+               value="{{ values.llm_max_retries }}" min="0" max="5">
+        <span class="field-hint">{{ t('admin.tech.retries_hint') }}</span>
+      </div>
+
+      <div class="field">
+        <label for="llm_max_calls_per_day_per_client">Max calls / day / client</label>
+        <input type="number" id="llm_max_calls_per_day_per_client" name="llm_max_calls_per_day_per_client"
+               class="mono" value="{{ values.llm_max_calls_per_day_per_client }}" min="0" max="10000">
+        <span class="field-hint">Budget cứng per-client. Vượt → upload bị reject với thông báo.</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="settings-footer">
+    <a class="btn-secondary" href="/admin/settings/technical?fetch_models=1">Refresh model list</a>
+    <button type="submit" class="btn-primary">Lưu</button>
+  </div>
+</form>
+{% endblock %}

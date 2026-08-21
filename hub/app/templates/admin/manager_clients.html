@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.manager_clients.title') }} · {{ target.display_name }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+<section class="page-bar">
+  <div class="page-bar-main">
+    <h1>{{ t('admin.manager_clients.title') }}</h1>
+    <span class="page-tagline">{{ target.display_name }} · <span class="mono">{{ target.email }}</span></span>
+  </div>
+  <div class="page-actions">
+    <a class="btn-secondary" href="/admin/users">← {{ t('admin.users') }}</a>
+  </div>
+</section>
+
+<div class="toast">{{ t('admin.manager_clients.subtitle') }}</div>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('admin.manager_clients.assigned') }}</h2>
+      <p class="meta">{{ assigned|length }}</p>
+    </div>
+  </div>
+  {% if assigned %}
+  <div class="rowlist">
+    {% for c in assigned %}
+    <div class="rowitem">
+      <div class="rowitem-main">
+        <strong>{{ c.name }}</strong>
+        <div class="meta mono">{{ c.client_id }}</div>
+      </div>
+      <div class="rowitem-side">
+        <form method="post" action="/admin/users/{{ target.user_id }}/clients/remove" class="inline-form">
+          <input type="hidden" name="client_id" value="{{ c.client_id }}">
+          <button type="submit" class="btn-xs btn-danger-sm">{{ t('admin.manager_clients.remove') }}</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state"><p>{{ t('admin.manager_clients.empty_assigned') }}</p></div>
+  {% endif %}
+</section>
+
+<section class="zone zone-muted">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('admin.manager_clients.available') }}</h2>
+      <p class="meta">{{ available|length }}</p>
+    </div>
+  </div>
+  {% if available %}
+  <div class="rowlist">
+    {% for c in available %}
+    <div class="rowitem">
+      <div class="rowitem-main">
+        <strong>{{ c.name }}</strong>
+        <div class="meta mono">{{ c.client_id }}</div>
+      </div>
+      <div class="rowitem-side">
+        <form method="post" action="/admin/users/{{ target.user_id }}/clients/add" class="inline-form">
+          <input type="hidden" name="client_id" value="{{ c.client_id }}">
+          <button type="submit" class="btn-xs btn-secondary">+ {{ t('admin.manager_clients.add') }}</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state"><p>{{ t('admin.manager_clients.empty_available') }}</p></div>
+  {% endif %}
+</section>
+{% endblock %}

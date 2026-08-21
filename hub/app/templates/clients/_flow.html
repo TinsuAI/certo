@@ -1,0 +1,32 @@
+{# Shared grammar for the upload → preview → commit family.
+
+   Import `with context` — the macros use the request-bound `t()` helper:
+     {% import "clients/_flow.html" as flow with context %}
+
+   `rail(step, note)`  three-step pipeline strip. step = 1 (Chọn tệp),
+                       2 (Kiểm tra), 3 (Ghi nhận). Steps before `step`
+                       render as done, the current one as `on`.
+   `note(body, kind)`  callout: kind = '' | 'success' | 'warn' | 'error' | 'info'.
+#}
+
+{% macro rail(step, note='') %}
+<nav class="rail rail-page" aria-label="{{ t('flow.rail_aria') }}">
+  <span class="rail-s {{ 'on' if step == 1 else 'done' }}"
+        {% if step == 1 %}aria-current="step"{% endif %}>
+    <span class="n">1</span>{{ t('flow.step.pick') }}
+  </span>
+  <span class="rail-s {{ 'on' if step == 2 else ('done' if step > 2 else '') }}"
+        {% if step == 2 %}aria-current="step"{% endif %}>
+    <span class="n">2</span>{{ t('flow.step.check') }}
+  </span>
+  <span class="rail-s {{ 'on' if step == 3 else '' }}"
+        {% if step == 3 %}aria-current="step"{% endif %}>
+    <span class="n">3</span>{{ t('flow.step.commit') }}
+  </span>
+  {% if note %}<span class="rail-note">{{ note }}</span>{% endif %}
+</nav>
+{% endmacro %}
+
+{% macro note(body, kind='') %}
+<div class="callout {{ 'callout-' + kind if kind else '' }}">{{ body }}</div>
+{% endmacro %}

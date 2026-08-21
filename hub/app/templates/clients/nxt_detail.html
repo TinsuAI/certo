@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% from "_format.html" import format_number, format_date %}
+{% block title %}NXT {{ artifact.period_year or '' }} · {{ client.name }}{% endblock %}
+
+{% macro code_cell(code) %}
+{%- if code and code in known_codes -%}
+  <a class="xlink" href="/clients/{{ client.client_id }}/catalog/{{ code }}/detail"
+     title="Xem mã trong Danh Mục">{{ code }}</a>
+{%- elif code -%}
+  <span title="Mã không có trong Danh Mục">{{ code }}</span>
+{%- else -%}—{%- endif -%}
+{% endmacro %}
+
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div class="page-bar-main">
+      <h2>NXT — Kỳ quyết toán {{ artifact.period_year or '—' }}</h2>
+      <p class="meta">
+        {% if artifact.period_from or artifact.period_to %}
+          Khoảng: {{ artifact.period_from or '—' }} → {{ artifact.period_to or '—' }} ·
+        {% endif %}
+        Nguồn: <span class="mono">{{ artifact.source_kind }}</span> ·
+        Adapter: <span class="mono">{{ artifact.adapter_name or '—' }}</span> ·
+        {{ artifact.n_lines }} dòng ·
+        Tạo lúc {{ format_date(artifact.created_at, '%Y-%m-%d %H:%M') }}
+        {% if artifact.superseded_by %}· <span class="badge badge-warn">đã bị thay thế</span>{% endif %}
+      </p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/nxt">← Danh sách NXT</a>
+    </div>
+  </div>
+
+  {% if lines %}
+  <table class="dh-table dense">
+    <thead>
+      <tr>
+        <th class="num">#</th>
+        <th>Mã nội bộ</th>
+        <th>Mã hải quan</th>
+        <th>Tên</th>
+        <th>ĐVT</th>
+        <th>Vai trò</th>
+        <th class="num">Đầu kỳ</th>
+        <th class="num">Nhập</th>
+        <th class="num">Xuất</th>
+        <th class="num">Cuối kỳ (BC)</th>
+        <th class="num">Cuối kỳ (suy ra)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in lines %}
+      {% set mismatch = l.closing_implied is not none and l.closing_reported is not none
+                        and (l.closing_implied - l.closing_reported)|abs > 1e-6 %}
+      <tr>
+        <td class="num meta">{{ l.line_no }}</td>
+        <td class="mono">{{ code_cell(l.internal_code) }}</td>
+        <td class="mono">{{ l.customs_code or '—' }}</td>
+        <td>{{ l.name or '—' }}</td>
+        <td>{{ l.uom or '—' }}</td>
+        <td>{% if l.reported_role %}<span class="badge badge-info">{{ l.reported_role }}</span>{% else %}<span class="meta">—</span>{% endif %}</td>
+        <td class="num">{{ format_number(l.opening, decimals=2, lang=lang) }}</td>
+        <td class="num">{{ format_number(l.inbound_total, decimals=2, lang=lang) }}</td>
+        <td class="num">{{ format_number(l.outbound_total, decimals=2, lang=lang) }}</td>
+        <td class="num">{{ format_number(l.closing_reported, decimals=2, lang=lang) }}</td>
+        <td class="num {% if mismatch %}cell-off{% endif %}"
+            {% if mismatch %}title="Cuối kỳ suy ra ≠ báo cáo"{% endif %}>
+          {{ format_number(l.closing_implied, decimals=2, lang=lang) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% include "clients/_pagination.html" %}
+  {% else %}
+  <div class="empty-state"><p>Artifact này không có dòng dữ liệu.</p></div>
+  {% endif %}
+</section>
+{% endblock %}

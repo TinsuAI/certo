@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ t('error.' ~ err_key ~ '.title') }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+<section class="error-page">
+  <p class="error-page-code">{{ status_code }}</p>
+  <h1 class="error-page-title">{{ t('error.' ~ err_key ~ '.title') }}</h1>
+  <p class="error-page-body">{% if detail %}{{ detail }}{% else %}{{ t('error.' ~ err_key ~ '.body') }}{% endif %}</p>
+  <div class="error-page-actions">
+    {% if user %}
+    <a class="btn-primary" href="/clients">{{ t('error.action.home') }}</a>
+    {% else %}
+    <a class="btn-primary" href="/login">{{ t('error.action.login') }}</a>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

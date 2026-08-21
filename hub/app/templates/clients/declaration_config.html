@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Cấu hình loại hình · {{ client.name }}{% endblock %}
+{% block content %}
+{# Trang này tự dựng thanh tiêu đề riêng (có tiêu đề cụ thể hơn), nên không
+   include "_client_nav.html" nữa — nếu include sẽ ra hai thanh tiêu đề chồng
+   nhau. Điều hướng khu làm việc nằm ở thanh bên (_sidebar.html). #}
+
+<section class="page-bar">
+  <h1>Cấu hình loại hình tờ khai</h1>
+  <span class="page-tagline">
+    Master data: loại hình HQ DNCX này được phép nhập / xuất.
+    CO + BCQT đọc qua API <span class="mono">/v1/hub/dncxs/{{ client.client_id }}/client-config</span>.
+  </span>
+  <div class="page-actions">
+    <span class="badge badge-info">v{{ cfg.config_version }}</span>
+    <span class="badge" title="Hash để consumer cache invalidate">hash {{ cfg.config_hash[:8] if cfg.config_hash else '—' }}</span>
+    <a class="btn-secondary" href="/clients/{{ client.client_id }}/edit">← Cấu hình chung</a>
+  </div>
+</section>
+
+{% if saved %}
+<div class="callout callout-success">Đã lưu cấu hình loại hình. Version bumped.</div>
+{% endif %}
+{% if error %}
+<div class="callout callout-error">{{ error }}</div>
+{% endif %}
+
+{% if cfg.config_version == 0 %}
+<div class="callout callout-warn">
+  Client này chưa có cấu hình. Chọn 1 preset bên dưới để áp dụng nhanh,
+  hoặc tự tick từng loại hình.
+</div>
+{% endif %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Áp preset (snapshot)</h2>
+      <p class="meta">
+        Chọn 1 preset → copy default vào client. Sửa preset sau đó KHÔNG cascade.
+        <strong>Khi tự sửa list bên dưới rồi bấm "Lưu cấu hình" → preset bị bỏ → trạng thái thành "tự cấu hình".</strong>
+      </p>
+    </div>
+    {% if cfg.preset_key %}
+    <span class="badge badge-info">Đang dùng preset: <strong class="mono">{{ cfg.preset_key }}</strong></span>
+    {% else %}
+    <span class="badge badge-warning">Tự cấu hình (không gắn preset)</span>
+    {% endif %}
+  </div>
+  <div class="settings-grid">
+    {% for p in presets %}
+    <form method="post" action="/clients/{{ client.client_id }}/declaration-config/apply-preset" class="inline-form">
+      <input type="hidden" name="preset_key" value="{{ p.preset_key }}">
+      <button type="submit" class="btn-secondary" {% if not can_edit %}disabled{% endif %}>
+        {{ p.display_name }}
+        {% if cfg.preset_key == p.preset_key %}<span class="badge badge-success" style="margin-left:.4rem;">đang dùng</span>{% endif %}
+      </button>
+    </form>
+    {% endfor %}
+  </div>
+</section>
+
+<form method="post" action="/clients/{{ client.client_id }}/declaration-config" class="settings-form">
+
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <div>
+        <h2>Loại hình nhập (Import)</h2>
+        <p class="meta">Tờ khai nhập tính tồn nguyên liệu cho C/O và quyết toán Mẫu 15.</p>
+      </div>
+    </div>
+    <div class="checkbox-grid">
+      {% for c in import_codes %}
+      <label class="checkbox-cell">
+        <input type="checkbox" name="eligible_import_declaration_types" value="{{ c.code }}"
+               {% if c.code in cfg.eligible_import_declaration_types %}checked{% endif %}
+               {% if not can_edit %}disabled{% endif %}>
+        <span class="mono">{{ c.code }}</span>
+        <span class="small">{{ c.description }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="field">
+      <label class="field-label">Mã khác (CSV — không có trong catalog)</label>
+      <input type="text" name="extra_eligible_import" placeholder="vd: E99, A91" {% if not can_edit %}disabled{% endif %}>
+      <span class="field-hint">Mã thêm vào sẽ được uppercase + trim. Cân nhắc thêm vào catalog ở /admin/declaration-types để tái dùng.</span>
+    </div>
+  </section>
+
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <div>
+        <h2>Loại hình xuất (Export)</h2>
+        <p class="meta">Tờ khai xuất quan tâm cho C/O và quyết toán Mẫu 16.</p>
+      </div>
+    </div>
+    <div class="checkbox-grid">
+      {% for c in export_codes %}
+      <label class="checkbox-cell">
+        <input type="checkbox" name="relevant_export_declaration_types" value="{{ c.code }}"
+               {% if c.code in cfg.relevant_export_declaration_types %}checked{% endif %}
+               {% if not can_edit %}disabled{% endif %}>
+        <span class="mono">{{ c.code }}</span>
+        <span class="small">{{ c.description }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="field">
+      <label class="field-label">Mã khác (CSV)</label>
+      <input type="text" name="extra_relevant_export" placeholder="vd: B91" {% if not can_edit %}disabled{% endif %}>
+    </div>
+  </section>
+
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <div>
+        <h2>Năm tài chính</h2>
+        <p class="meta">Tháng bắt đầu năm tài chính. Đa số DN Việt Nam = 1 (năm dương lịch). DN Nhật thường = 4.</p>
+      </div>
+    </div>
+    <div class="settings-grid">
+      <label class="field">
+        <span class="field-label">Tháng bắt đầu</span>
+        <select name="fiscal_year_start_month" {% if not can_edit %}disabled{% endif %}>
+          {% for m in range(1, 13) %}
+          <option value="{{ m }}" {% if m == cfg.fiscal_year_start_month %}selected{% endif %}>Tháng {{ m }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+  </section>
+
+  {% if can_edit %}
+  <footer class="commit-bar commit-bar-standalone">
+    <span class="commit-note">Lưu sẽ tăng <span class="mono">config_version</span> — CO và BCQT đọc lại qua API.</span>
+    <div class="commit-actions">
+      <button type="submit" class="btn-primary">Lưu cấu hình</button>
+      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}">{{ t('common.cancel') }}</a>
+    </div>
+  </footer>
+  {% else %}
+  <footer class="commit-bar commit-bar-standalone">
+    <span class="badge badge-warning">Read-only — bạn không có quyền edit client này.</span>
+  </footer>
+  {% endif %}
+</form>
+{% endblock %}

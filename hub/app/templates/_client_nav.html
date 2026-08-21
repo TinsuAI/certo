@@ -1,0 +1,40 @@
+{# Slim page header for every client workspace page.
+
+   The workspace navigation itself now lives in the persistent sidebar
+   (`_sidebar.html`, rendered once from base.html) and the client switcher
+   lives in the header, so this partial is only the page title bar:
+   one h1, one muted context line, actions on the right. #}
+{% set at = active_tab|default('') %}
+{% set page_titles = {
+  'overview': 'tabs.overview',
+  'catalog': 'navgrp.catalog.item',
+  'bqd': 'tabs.bqd',
+  'bcct': 'tabs.bcct',
+  'declarations': 'tabs.declarations',
+  'nxt': 'navgrp.settlement.nxt',
+  'inventory': 'navgrp.settlement.inventory',
+  'bom': 'navgrp.bom.list',
+  'proposals': 'tabs.proposals',
+  'uom-factors': 'navgrp.bom.uom',
+  'uploads': 'tabs.uploads',
+  'agent': 'tabs.agent',
+  'config': 'navgrp.config.general',
+  'parser_rules': 'navgrp.config.parser_rules',
+  'column_aliases': 'navgrp.config.column_aliases',
+  'material_group_map': 'navgrp.config.material_group_map',
+  'staff': 'tabs.staff',
+} %}
+<section class="page-bar">
+  <div class="page-bar-main">
+    <h1>{% if page_titles.get(at) %}{{ t(page_titles.get(at)) }}{% else %}{{ client.name }}{% endif %}</h1>
+    <p class="page-tagline">
+      {{ client.name }}
+      · <span class="mono">{{ client.client_id }}</span>
+      {% if client.tax_code %} · {{ t('clients.row.tax') }} <span class="mono">{{ client.tax_code }}</span>{% endif %}
+      · {{ t('clients.mode.' + client.code_resolution_mode + '.short') }}
+    </p>
+  </div>
+  <div class="page-actions">
+    <span class="badge badge-{{ 'success' if client.status == 'active' else 'warning' }}">{{ t('status.' + client.status) if client.status in ['active','archived'] else client.status }}</span>
+  </div>
+</section>

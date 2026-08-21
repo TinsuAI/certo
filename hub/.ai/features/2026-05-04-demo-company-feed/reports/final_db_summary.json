@@ -1,0 +1,38 @@
+{
+  "client_id": "demo-precision-manufactu-68f7",
+  "client": {
+    "name": "Demo Precision Manufacturing VN",
+    "tax_code": "0312345678",
+    "code_resolution_mode": "identity",
+    "bom_proposal_mode": "auto"
+  },
+  "catalog_count": 50,
+  "catalog_by_category": {
+    "btp_sx": 7,
+    "ccdc": 1,
+    "nvl": 34,
+    "tp": 8
+  },
+  "bqd_count": 50,
+  "bcct_count": 1000,
+  "bcct_by_direction": {
+    "export": 350,
+    "import": 650
+  },
+  "bom_summary": [
+    {
+      "category": "btp_sx",
+      "flatten_status": "flattened",
+      "products": 7,
+      "rows": 29
+    },
+    {
+      "category": "tp",
+      "flatten_status": "flattened",
+      "products": 8,
+      "rows": 68
+    }
+  ],
+  "bom_non_flattened_versions": 0,
+  "bom_unresolved_nodes": 0
+}

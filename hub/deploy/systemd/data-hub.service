@@ -1,0 +1,50 @@
+[Unit]
+Description=Data Hub (Tinsu AI agency master records)
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=exec
+User=hub
+Group=hub
+WorkingDirectory=/opt/data-hub
+EnvironmentFile=/etc/data-hub/.env
+
+# uv-managed Python venv. Adjust if you use system Python instead.
+ExecStart=/opt/data-hub/.venv/bin/uvicorn app.main:app \
+  --host 127.0.0.1 --port 8754 \
+  --workers 2 \
+  --proxy-headers --forwarded-allow-ips '127.0.0.1' \
+  --log-level info
+
+# Restart policy: keep the service alive but don't infinite-loop on a
+# broken config. systemd default RestartSec=100ms is too aggressive.
+Restart=on-failure
+RestartSec=5s
+StartLimitInterval=120
+StartLimitBurst=5
+
+# Hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadOnlyPaths=/opt/data-hub /etc/data-hub
+ReadWritePaths=/var/lib/data-hub
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+# stdout / stderr → journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=data-hub
+
+[Install]
+WantedBy=multi-user.target

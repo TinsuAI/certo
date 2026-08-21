@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}{{ t('bom.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+{% from "clients/_metric_dash.html" import metric_dash %}
+{{ metric_dash(dash_cards) }}
+{% include "clients/_staleness_bar.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('bom.title') }}</h2>
+      <p class="meta">{{ t('bom.subtitle') }}</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/needs-action">
+        ⚠ Cần xử lý
+      </a>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/uom-factors">
+        Hệ số quy đổi
+      </a>
+      <a class="btn-primary" href="/clients/{{ client.client_id }}/bom/upload">{{ t('bom.upload_btn') }}</a>
+    </div>
+  </div>
+
+  {% if request.query_params.get('ingested') %}
+  {% set _ingested = request.query_params.get('ingested') %}
+  {% set _kind = request.query_params.get('kind') %}
+  {% if _kind == 'raw' and request.query_params.get('flat') == '0' %}
+  <div class="toast toast-error" style="margin-bottom: 1rem;">
+    ⚠ Đã nạp {{ _ingested }} BOM kỹ thuật nhưng CHƯA sinh được BOM phẳng.
+    Kiểm tra lại cấu trúc file hoặc cấu hình derive của client.
+  </div>
+  {% elif _kind == 'raw' %}
+  <div class="toast" style="margin-bottom: 1rem;">
+    ✓ Đã nạp {{ _ingested }} BOM kỹ thuật và tự động sinh BOM phẳng (shallow + full_flat).
+  </div>
+  {% elif _kind == 'flat' %}
+  <div class="toast" style="margin-bottom: 1rem;">
+    ✓ Đã lưu {{ _ingested }} BOM phẳng (lưu nguyên trạng, không phân rã cấp).
+  </div>
+  {% else %}
+  <div class="toast" style="margin-bottom: 1rem;">
+    ✓ Đã lưu {{ _ingested }} BOM version.
+  </div>
+  {% endif %}
+  {% elif request.query_params.get('tombstoned') %}
+  <div class="toast" style="margin-bottom: 1rem;">
+    ✓ Đã thu hồi {{ request.query_params.get('tombstoned') }} phiên bản BOM (gồm shape dẫn xuất).
+  </div>
+  {% elif request.query_params.get('rejected') %}
+  <div class="toast toast-error" style="margin-bottom: 1rem;">
+    ⚠ File đã bị reject. Không có BOM version nào được tạo.
+  </div>
+  {% endif %}
+
+  {% macro sort_th(col, label) -%}
+    {% set is_active = sort.column == col %}
+    <th class="sortable {% if is_active %}sort-active{% endif %}">
+      <a href="{{ sort_link(col) }}" title="Sắp xếp theo {{ label }}">
+        {{ label }}
+        {%- if is_active %}
+          <span class="sort-arrow">{% if sort.direction == 'asc' %}▲{% else %}▼{% endif %}</span>
+        {%- endif %}
+      </a>
+    </th>
+  {%- endmacro %}
+
+  <form method="get" action="/clients/{{ client.client_id }}/bom"
+        class="stack-form" style="margin: 1rem 0; max-width: 600px;">
+    {% if sort.column != 'last_published' or sort.direction != 'desc' %}
+      <input type="hidden" name="sort" value="{{ sort.column }}">
+      <input type="hidden" name="dir" value="{{ sort.direction }}">
+    {% endif %}
+    {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
+    <input type="search" name="q" value="{{ q }}"
+           placeholder="Tìm theo mã thành phẩm hoặc mã NVL trong BOM…">
+  </form>
+
+  <div class="flatten-version-filters" style="margin-bottom: 0.8rem;">
+    <a class="filter-chip {% if not kind %}is-active{% endif %}"
+       href="{{ kind_link(None) }}">Tất cả</a>
+    <a class="filter-chip {% if kind == 'tp' %}is-active{% endif %}"
+       href="{{ kind_link('tp') }}">TP (thành phẩm)</a>
+    <a class="filter-chip {% if kind == 'btp' %}is-active{% endif %}"
+       href="{{ kind_link('btp') }}">BTP (bán thành phẩm)</a>
+  </div>
+
+  {% if products %}
+  {# Counts for filter chips — applied to current page only.
+     Page-level filtering is client-side; chip totals reflect what's
+     visible on screen, while paging.total is the absolute count. #}
+  {% set ns = namespace(flat=0, nflat=0) %}
+  {% for p in products %}
+    {% if p.n_non_flattened > 0 %}{% set ns.nflat = ns.nflat + 1 %}{% endif %}
+    {% if p.n_flattened > 0 and p.n_non_flattened == 0 %}{% set ns.flat = ns.flat + 1 %}{% endif %}
+  {% endfor %}
+
+  <div class="flatten-version-filters" style="margin-bottom: 0.8rem;">
+    <span class="filter-chip is-active" data-filter="all">
+      {{ t('bom.list.filter_all') }} · {{ paging.total }}
+    </span>
+    <span class="filter-chip" data-filter="flattened">
+      ✓ {{ t('bom.list.filter_flattened') }} · {{ ns.flat }} (trang)
+    </span>
+    <span class="filter-chip" data-filter="non_flattened">
+      ⚠ {{ t('bom.list.filter_non_flattened') }} · {{ ns.nflat }} (trang)
+    </span>
+  </div>
+
+  <div class="table-wrap">
+  <table class="dh-table dense" id="bom-products-table">
+    <thead>
+      <tr>
+        {{ sort_th('product_code', t('bom.col.product')) }}
+        <th></th>
+        <th>{{ t('common.status') }}</th>
+        {{ sort_th('n_logical_versions', t('bom.col.logical_versions')) }}
+        <th>{{ t('bom.col.latest') }}</th>
+        {{ sort_th('last_published', t('bom.col.last_published')) }}
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in products %}
+      {% set has_nflat = p.n_non_flattened > 0 %}
+      {% set has_flat = p.n_flattened > 0 %}
+      {% set row_class = 'flat-only' if has_flat and not has_nflat else ('nflat-only' if has_nflat and not has_flat else 'mixed') %}
+      <tr data-status="{{ row_class }}" data-row-href="/clients/{{ client.client_id }}/bom/{{ p.product_code }}/artifacts" tabindex="0">
+        <td class="mono">{{ p.product_code }}</td>
+        <td>
+          {% if p.product_kind == 'btp' %}
+            <span class="badge badge-info">{{ t('bom.list.kind_btp') }}</span>
+          {% else %}
+            <span class="badge badge-muted">{{ t('bom.list.kind_tp') }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if has_nflat and has_flat %}
+            <span class="badge badge-warn">{{ t('bom.list.status.mixed') }}</span>
+          {% elif has_nflat %}
+            <span class="badge badge-warn">⚠ {{ t('bom.list.status.non_flattened') }}</span>
+          {% elif p.latest_flatten_status == 'not_applicable' %}
+            <span class="badge badge-muted">{{ t('bom.list.status.not_applicable') }}</span>
+          {% else %}
+            <span class="badge badge-success">✓ {{ t('bom.list.status.flattened') }}</span>
+          {% endif %}
+          {% if p.n_strategies and p.n_strategies > 2 %}
+            <span class="badge badge-info" title="dual-source materializations">×{{ p.n_strategies }} {{ t('bom.list.materializations') }}</span>
+          {% endif %}
+          {% if p.n_stale and p.n_stale > 0 %}
+            <span class="badge badge-warn" data-stale-badge="1"
+                  title="{{ t('bom.stale.tooltip') }}">⚠ {{ t('bom.stale.badge') }} ({{ p.n_stale }})</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="badge badge-muted">{{ p.n_logical_versions }}</span>
+          <span class="meta">· {{ p.n_artifacts }} {{ t('bom.list.artifacts_unit') }}</span>
+          {% if has_nflat %}<span class="meta">· {{ p.n_non_flattened }} non-flat</span>{% endif %}
+        </td>
+        <td class="mono">#{{ p.latest_artifact_no }}</td>
+        <td class="mono">{{ p.last_published.strftime('%Y-%m-%d %H:%M') if p.last_published else '—' }}</td>
+        <td><a class="btn-ghost btn-xs" href="/clients/{{ client.client_id }}/bom/{{ p.product_code }}/artifacts">{{ t('common.detail') }} →</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <script>
+    (function() {
+      const chips = document.querySelectorAll('.flatten-version-filters .filter-chip');
+      const rows = document.querySelectorAll('#bom-products-table tbody tr');
+      chips.forEach(chip => chip.addEventListener('click', () => {
+        chips.forEach(c => c.classList.remove('is-active'));
+        chip.classList.add('is-active');
+        const f = chip.dataset.filter;
+        rows.forEach(r => {
+          const status = r.dataset.status;
+          r.style.display = (
+            f === 'all'
+            || (f === 'flattened' && status === 'flat-only')
+            || (f === 'non_flattened' && (status === 'nflat-only' || status === 'mixed'))
+          ) ? '' : 'none';
+        });
+      }));
+    })();
+  </script>
+  {% include "clients/_pagination.html" %}
+  {% else %}
+  <div class="empty-state">
+    {% if q or kind %}
+    <p>Không có sản phẩm khớp bộ lọc hiện tại.</p>
+    <a class="btn-ghost" href="/clients/{{ client.client_id }}/bom">Xóa bộ lọc</a>
+    {% else %}
+    <p>{{ t('bom.empty') }}</p>
+    <a class="btn-primary" href="/clients/{{ client.client_id }}/bom/upload">{{ t('bom.upload_btn') }}</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

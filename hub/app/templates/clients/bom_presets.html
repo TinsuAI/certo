@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Presets · {{ product_code }} · {{ client.name }}{% endblock %}
+
+{% block content %}
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Presets <span class="mono">{{ product_code }}</span></h2>
+      <p class="meta">{{ presets|length }} alive · 1 preset = 1 artifact pin + sourcing intent</p>
+    </div>
+    <div>
+      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/bom/{{ product_code }}/artifacts">← artifacts</a>
+    </div>
+  </div>
+
+  {% if presets %}
+  <div class="table-wrap">
+  <table class="dh-table dense">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Artifact</th>
+        <th>Notes</th>
+        <th>Created</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in presets %}
+      <tr>
+        <td><strong>{{ p.name }}</strong> <span class="mono meta">{{ p.preset_id }}</span></td>
+        <td>
+          <a class="mono" href="/clients/{{ client.client_id }}/bom/artifact/{{ p.artifact_id }}">{{ p.artifact_id }}</a>
+        </td>
+        <td>{{ p.notes or '—' }}</td>
+        <td class="mono">{{ p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else '—' }}</td>
+        <td>
+          <form method="post"
+                action="/clients/{{ client.client_id }}/bom/presets/{{ p.preset_id }}/tombstone"
+                onsubmit="return confirm('Thu hồi preset {{ p.name }}? (Lưu lịch sử, không xóa — tham chiếu cũ vẫn truy vấn được.)')"
+                style="display:inline">
+            <input type="text" name="reason" placeholder="lý do (tuỳ chọn)" class="mini-input">
+            <button type="submit" class="btn-danger btn-xs">thu hồi</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="meta">No alive presets. Create one below.</p>
+  {% endif %}
+
+  <div class="subsection-head"><h3>Create preset</h3></div>
+  <form method="post" class="stack-form"
+        action="/clients/{{ client.client_id }}/bom/{{ product_code }}/presets">
+    <label>
+      <span class="meta">Name (unique per product)</span>
+      <input type="text" name="name" required placeholder="default | co-case-12345 | settlement-2025">
+    </label>
+    <label>
+      <span class="meta">Artifact</span>
+      <select name="artifact_id" required>
+        <option value="">— pick a published artifact —</option>
+        {% for a in artifacts %}
+        <option value="{{ a.artifact_id }}">#{{ a.artifact_no }} · {{ a.flatten_strategy }}{% if a.bom_variant_id and a.bom_variant_id != 'default' %} · {{ a.bom_variant_id }}{% endif %} · {{ a.artifact_id[:16] }}…</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span class="meta">Notes (optional)</span>
+      <input type="text" name="notes" placeholder="why this preset, what override intent">
+    </label>
+    <div>
+      <button type="submit" class="btn-primary">Create preset</button>
+    </div>
+  </form>
+
+  <p class="meta">
+    Sourcing-choices override editor not yet available — edit via PATCH
+    /v1/hub/presets/{preset_id} until the UI lands (Phase 3+).
+  </p>
+</section>
+{% endblock %}
