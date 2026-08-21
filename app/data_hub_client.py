@@ -4,6 +4,8 @@ from contextvars import ContextVar, Token
 from typing import Any, Callable, Sequence
 from urllib.parse import quote
 
+import os
+
 import httpx
 
 from app.client_config_store import migrate_config
@@ -1079,6 +1081,16 @@ def data_hub_client_from_env(token_provider: Callable[[], str] | None = None) ->
     settings = data_hub_link_settings()
     if not settings.source_enabled:
         return None
+    if os.environ.get("DATA_HUB_INPROCESS") == "1":
+        # Phase 1: no second process. Data Hub runs inside this one; the hot
+        # paths bypass HTTP entirely. See app/data_hub_inprocess.py.
+        from app.data_hub_inprocess import InProcessDataHubClient
+
+        return InProcessDataHubClient(
+            token=settings.api_token,
+            token_provider=token_provider,
+            timeout=settings.request_timeout_seconds,
+        )
     settings.require_source_config()
     return DataHubClient(
         base_url=settings.data_hub_api_base_url,
