@@ -1415,7 +1415,14 @@ function formatFileSize(sizeBytes) {
 }
 
 function isLocalAppPath(value) {
-  return Boolean(value) && String(value).startsWith(ROOT);
+  if (!value) {
+    return false;
+  }
+  // Compare on a path boundary, not a raw prefix: a sibling directory whose name
+  // merely starts with ROOT (barry-CO next to barry-CO-main) is not inside it.
+  const resolved = path.resolve(String(value));
+  const root = path.resolve(ROOT);
+  return resolved === root || resolved.startsWith(root + path.sep);
 }
 
 function binaryContentType(filePath) {

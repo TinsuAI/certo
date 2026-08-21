@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
+import path from "node:path";
 
 import {
   buildDocumentRouteSlug,
@@ -11,6 +12,13 @@ import {
   resolveRenderableMarkdown,
   selectSupplementalArtifacts,
 } from "../scripts/legal-lookup-server.mjs";
+
+// The server decides "is this file ours to serve" with startsWith(process.cwd()),
+// so fixtures that must look local have to be rooted at the same cwd the suite
+// runs from. Hardcoding an absolute path pinned these to the pre-consolidation
+// repo (barry-CO), which stopped matching once the repo became barry-CO-main.
+const REPO_ROOT = process.cwd();
+const localFixturePath = (...parts) => path.join(REPO_ROOT, ...parts);
 
 test("should prefer canonical markdown when it exists", () => {
   const entry = {
@@ -253,9 +261,9 @@ test("should infer official html provenance from cache when official url metadat
       {
         sourceId: "official-text",
         pageUrl: "https://ecosys.gov.vn/Documents/AK/TT%2013-2019.rar",
-        cachedSearchHtmlPath: "/home/vp/workspace/client/barry-CO/data/legal/normalized/ecosys/source-cache/official/vntr/search-html/13-2019.html",
-        cachedJsonPath: "/home/vp/workspace/client/barry-CO/data/legal/normalized/ecosys/source-cache/official/vntr/json/13-2019.json",
-        extractedMarkdownPath: "/home/vp/workspace/client/barry-CO/data/legal/normalized/ecosys/source-cache/official/vntr/markdown/13-2019.md",
+        cachedSearchHtmlPath: localFixturePath("data", "legal", "normalized", "ecosys", "source-cache", "official", "vntr", "search-html", "13-2019.html"),
+        cachedJsonPath: localFixturePath("data", "legal", "normalized", "ecosys", "source-cache", "official", "vntr", "json", "13-2019.json"),
+        extractedMarkdownPath: localFixturePath("data", "legal", "normalized", "ecosys", "source-cache", "official", "vntr", "markdown", "13-2019.md"),
       },
     ],
     sourceClassification: {
@@ -321,7 +329,7 @@ test("should build compare-source links for available provenance assets", () => 
     extractionPath: "/tmp/extracted.json",
     ocrPath: "/tmp/ocr.json",
     rawBinarySource: {
-      localPath: "/home/vp/workspace/client/barry-CO/data/legal/official-mirror/example.rar",
+      localPath: localFixturePath("data", "legal", "official-mirror", "example.rar"),
     },
   }, "vi");
 
@@ -338,6 +346,20 @@ test("should build compare-source links for available provenance assets", () => 
   assert.match(links.at(-1).href, /\/source\/44-2023-tt-bct\/raw-binary/);
 });
 
+test("should not treat a sibling directory sharing the root prefix as a local mirror", () => {
+  const links = buildSourceLinkModels({
+    routeSlug: "44-2023-tt-bct",
+    discovery: {
+      listingUrl: "https://ecosys.gov.vn/Homepage/DocumentView.aspx",
+    },
+    rawBinarySource: {
+      localPath: `${REPO_ROOT}-sibling/data/legal/official-mirror/example.rar`,
+    },
+  }, "vi");
+
+  assert.ok(!links.some((link) => link.id === "raw-binary"));
+});
+
 test("should suppress official page links when official text metadata points to an ecosys binary", () => {
   const links = buildSourceLinkModels({
     routeSlug: "13-2019-tt-bct",
@@ -349,10 +371,10 @@ test("should suppress official page links when official text metadata points to 
     },
     officialPageUrl: "https://ecosys.gov.vn/Documents/AK/TT%2013-2019.rar",
     officialSearchUrl: "https://vntr.moit.gov.vn/legal-documents?doc_code=13%2F2019%2FTT-BCT&page=agreements",
-    officialMarkdownPath: "/home/vp/workspace/client/barry-CO/data/legal/normalized/ecosys/source-cache/official/vntr/markdown/13-2019.md",
-    officialSearchHtmlPath: "/home/vp/workspace/client/barry-CO/data/legal/normalized/ecosys/source-cache/official/vntr/search-html/13-2019.html",
+    officialMarkdownPath: localFixturePath("data", "legal", "normalized", "ecosys", "source-cache", "official", "vntr", "markdown", "13-2019.md"),
+    officialSearchHtmlPath: localFixturePath("data", "legal", "normalized", "ecosys", "source-cache", "official", "vntr", "search-html", "13-2019.html"),
     rawBinarySource: {
-      localPath: "/home/vp/workspace/client/barry-CO/data/legal/official-mirror/example.rar",
+      localPath: localFixturePath("data", "legal", "official-mirror", "example.rar"),
     },
   }, "vi");
 
@@ -368,16 +390,20 @@ test("should suppress official page links when official text metadata points to 
 });
 
 test("should rewrite absolute canonical markdown links to local document routes", () => {
+  const canonicalPath = localFixturePath(
+    "docs", "legal", "canonical", "pilot",
+    "05-2018-tt-bct-thong-tu-quy-dinh-ve-xuat-xu-hang-hoa.md",
+  );
   const html = `
     <table>
       <tr>
-        <td><a href="//home/vp/workspace/client/barry-CO/docs/legal/canonical/pilot/05-2018-tt-bct-thong-tu-quy-dinh-ve-xuat-xu-hang-hoa.md">05/2018</a></td>
+        <td><a href="/${canonicalPath}">05/2018</a></td>
       </tr>
     </table>
   `;
 
   const rewritten = rewriteRenderedMarkdownLinks(html, new Map([
-    ["/home/vp/workspace/client/barry-CO/docs/legal/canonical/pilot/05-2018-tt-bct-thong-tu-quy-dinh-ve-xuat-xu-hang-hoa.md", "/doc/05-2018-tt-bct"],
+    [canonicalPath, "/doc/05-2018-tt-bct"],
   ]), "en");
 
   assert.match(rewritten, /href="\/doc\/05-2018-tt-bct\?lang=en"/);
@@ -456,6 +482,12 @@ test("should serve home and search as separate surfaces", async () => {
 });
 
 test("should expose compare-source links and raw source routes on document pages", async () => {
+  // Must live under the repo root for isLocalAppPath to accept it, and must stay
+  // out of data/ — that is a symlink to the live app data directory.
+  const scratchRoot = path.join(REPO_ROOT, "temp");
+  await fs.mkdir(scratchRoot, { recursive: true });
+  const mirrorDir = await fs.mkdtemp(path.join(scratchRoot, "legal-lookup-test-"));
+  const mirrorBinaryPath = path.join(mirrorDir, "legal-binary.pdf");
   const documents = [
     {
       routeSlug: "44-2023-tt-bct",
@@ -476,7 +508,7 @@ test("should expose compare-source links and raw source routes on document pages
       extractionPath: "/tmp/legal-extraction.json",
       extractionAudit: { quality: "noisy" },
       qualityClassName: "quality-noisy",
-      rawBinarySource: { localPath: "/home/vp/workspace/client/barry-CO/data/legal/official-mirror/test/legal-binary.pdf" },
+      rawBinarySource: { localPath: mirrorBinaryPath },
     },
   ];
   const counts = {
@@ -491,13 +523,12 @@ test("should expose compare-source links and raw source routes on document pages
     },
   };
 
-  await fs.mkdir("/home/vp/workspace/client/barry-CO/data/legal/official-mirror/test", { recursive: true });
   await Promise.all([
     fs.writeFile("/tmp/legal-rendered.md", "# Rendered\n"),
     fs.writeFile("/tmp/legal-official.html", "<div>official html</div>"),
     fs.writeFile("/tmp/legal-attachment.pdf", "attachment"),
     fs.writeFile("/tmp/legal-extraction.json", JSON.stringify({ artifacts: [{ label: "Phụ lục I.pdf", body: "0101.21 CC\f0101.29 CC" }] })),
-    fs.writeFile("/home/vp/workspace/client/barry-CO/data/legal/official-mirror/test/legal-binary.pdf", "pdf"),
+    fs.writeFile(mirrorBinaryPath, "pdf"),
   ]);
 
   const server = createLegalLookupServer({
@@ -544,7 +575,7 @@ test("should expose compare-source links and raw source routes on document pages
       fs.unlink("/tmp/legal-official.html"),
       fs.unlink("/tmp/legal-attachment.pdf"),
       fs.unlink("/tmp/legal-extraction.json"),
-      fs.unlink("/home/vp/workspace/client/barry-CO/data/legal/official-mirror/test/legal-binary.pdf"),
+      fs.rm(mirrorDir, { recursive: true, force: true }),
     ]);
   }
 });
