@@ -25,7 +25,7 @@ import hashlib
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable
 
 from psycopg.types.json import Jsonb
@@ -190,7 +190,7 @@ def refresh_co_stock_for_client(
     summary["rows_removed"] = len(removable)
     summary["rows_blocked_by_claims"] = len(blocked)
     summary["took_seconds"] = round(time.time() - t0, 2)
-    summary["last_refresh_at"] = datetime.utcnow().isoformat()
+    summary["last_refresh_at"] = datetime.now(timezone.utc).isoformat()
     return summary
 
 

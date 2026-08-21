@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+from pathlib import Path
 
 import pytest
 
@@ -95,6 +97,94 @@ def isolate_db_schema():
             os.environ.pop(DATABASE_SCHEMA_ENV, None)
         else:
             os.environ[DATABASE_SCHEMA_ENV] = previous
+
+
+# --------------------------------------------------------------------------- #
+# File-store isolation                                                         #
+# --------------------------------------------------------------------------- #
+# `data/` is a symlink to the live app data directory, and every one of these
+# roots defaults inside it. Before this fixture, a plain `uv run pytest` wrote
+# BCCT/BOM uploads and snapshots into the shared `growatt` store and rewrote
+# `co-cases/clients/growatt/cases.json` and a client's `config.json` — 39 files
+# per run, growing without bound (218 accumulated BCCT uploads by 2026-08-21).
+# It had already broken `test_vn_origin_resolver` once.
+#
+# Each root is mirrored into a throwaway tree with hardlinks, so reads still see
+# the real corpus at no disk cost while every write lands on a fresh directory
+# entry. The stores write with mkstemp + os.replace, which swaps the entry
+# rather than the inode, so a hardlinked file cannot be modified in place.
+_FILE_STORE_ROOTS = {
+    "SOURCE_STORE_ROOT": "data/local/source-modules",
+    "BOM_STORE_ROOT": "data/local/bom-builder",
+    "CLIENT_CONFIG_ROOT": "data/local/client-config",
+    "CO_CASE_STORE_ROOT": "data/local/co-cases",
+}
+
+_MIRROR_PREFIX = "pytest-store-"
+_MIRROR_PARENT = "temp"
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _discard_mirror(mirror: Path) -> None:
+    # Same shape of guard as _drop_test_schema: refuse to delete anything that
+    # is not a tree this fixture created.
+    if mirror.parent.name != _MIRROR_PARENT or not mirror.name.startswith(_MIRROR_PREFIX):
+        raise RuntimeError(
+            f"refusing to remove {mirror!s}; the test mirror must live at "
+            f"{_MIRROR_PARENT}/{_MIRROR_PREFIX}*"
+        )
+    shutil.rmtree(mirror, ignore_errors=True)
+
+
+def _mirror_tree(source: Path, target: Path) -> None:
+    for current, _dir_names, file_names in os.walk(source):
+        relative = Path(current).relative_to(source)
+        (target / relative).mkdir(parents=True, exist_ok=True)
+        for name in file_names:
+            # Lock files are opened "w", which truncates through a hardlink.
+            # They carry no data; let the mirror make its own.
+            if name == ".lock":
+                continue
+            os.link(Path(current) / name, target / relative / name)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def isolate_file_store():
+    """Point every file-mode store at a hardlink mirror instead of `data/`.
+
+    A root already set in the environment is left alone — an explicit override
+    is a deliberate choice and this fixture must not silently take it over.
+    """
+    repo_root = _repo_root()
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "master").strip() or "master"
+    safe = "".join(ch if (ch.isalnum() or ch == "_") else "_" for ch in worker)
+    mirror = repo_root / _MIRROR_PARENT / f"{_MIRROR_PREFIX}{safe}"
+    _discard_mirror(mirror)
+
+    previous: dict[str, str | None] = {}
+    for env_name, relative in _FILE_STORE_ROOTS.items():
+        previous[env_name] = os.environ.get(env_name)
+        if previous[env_name] is not None:
+            continue
+        source = repo_root / relative
+        target = mirror / Path(relative).name
+        target.mkdir(parents=True, exist_ok=True)
+        if source.is_dir():
+            _mirror_tree(source, target)
+        os.environ[env_name] = str(target)
+
+    try:
+        yield
+    finally:
+        for env_name, value in previous.items():
+            if value is None:
+                os.environ.pop(env_name, None)
+            else:
+                os.environ[env_name] = value
+        _discard_mirror(mirror)
 
 
 @pytest.fixture(autouse=True)
