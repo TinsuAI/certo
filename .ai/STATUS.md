@@ -1,21 +1,21 @@
 # Project Status
 
-> **Read this first: the work is NOT on `main`.** This file lives on branch
-> `redesign/2026-08-ui` in the worktree `../barry-CO-redesign`. A session started in
-> `barry-CO-main` will see the older `main` copy of this file. Nothing was pushed.
-
 ## Current State
 
-**2026-08-20 — UI redesign of CO + Data Hub, on branches, plus five bảng kê state bugs fixed
-along the way.**
+**2026-08-21 — the redesign and the bảng kê fixes are MERGED and LIVE on production.**
 
-| | Worktree | Branch | Commits | Suite |
-|---|---|---|---|---|
-| CO | `../barry-CO-redesign` | `redesign/2026-08-ui` | 27 | 1180 pass / 21 skip / 0 fail |
-| Data Hub | `../data-hub-redesign` | `redesign/2026-08-ui` | 15 | 1687 pass / 16 skip / 0 fail |
+| | Merge commit | Prod (verified from the running container) |
+|---|---|---|
+| CO [#24](https://github.com/TinsuAI/co/pull/24) | `e9875e59` | `co-app-1` + `nightly-co-app-1` = `0.18.0` / `e9875e5` |
+| Data Hub [#60](https://github.com/TinsuAI/data-hub/pull/60) | `eef22c29` | superseded by #61/#62 |
+| Data Hub [#61](https://github.com/TinsuAI/data-hub/pull/61) — dark contrast + dead link | `73caf38a` | verified `73caf38` |
+| Data Hub [#62](https://github.com/TinsuAI/data-hub/pull/62) — BCCT reject route | `0783ebf5` | see below |
 
-`main` is untouched in both repos and both main checkouts are clean, so prod (`0.18.0`,
-`d51581f`) is unaffected. Both branches are review-ready; nothing is pushed.
+`version` did not move (`0.18.0` / `0.22.0`) — no release bump this round, so identify the
+build by `git_sha`, not by version.
+
+The redesign worktrees (`../barry-CO-redesign`, `../data-hub-redesign`) still exist on their
+branches. They can be removed once you are satisfied with what shipped.
 
 The redesign is a token remap plus a shell replacement: both apps were already ~100%
 `var()`-driven off one `body[data-theme]` block, so redefining those values reskinned every
@@ -42,19 +42,21 @@ submit wiped `material_overrides` on every sheet — the BOM version picker subm
 
 ## Next Steps
 
-1. **Review both branches and decide on merge.** Start the servers (below) and click through;
-   `/design` on each app is the fastest way to judge the visual system.
-2. **If prod needs the logic fixes before the visual round**, cherry-pick `f42ecb5`, `97334a0`,
-   `fe4fd22`, `61e1247`, `cf08192` — none of them depend on the reskin.
-3. **Data Hub dark theme is untuned.** `CONTRAST-AUDIT.md` lists computed WCAG failures with
-   replacement hex values.
-4. **Give the invariant harness its own client before trusting it in CI** — it writes BCCT rows
-   into the shared demo client `growatt`, whose store is the app's real data directory.
-5. **Data Hub commits carry no issue references**, which its own `AGENTS.md:104` requires.
+1. **Look at the live apps with real eyes.** The redesign shipped without a human ever
+   reviewing it — only screenshots were seen. `/design` on each app shows the whole component
+   system in one page.
+2. **Give the invariant harness its own client before trusting it in CI** — it writes BCCT rows
+   into the shared demo client `growatt`, whose store is the app's real data directory. It
+   already broke `test_vn_origin_resolver` once this way.
+3. **Data Hub commits carry no issue references**, which its own `AGENTS.md:104` requires. The
+   four PRs this round all violate it.
+4. **The flow proposals are unbuilt by design** — `FLOW-PROPOSAL.md` in both repos. The CO one
+   measures the origin step at 3,992,010 bytes with 15,414 hidden inputs.
+5. **5,314 lines of inline JS in `co_case.html` have zero test coverage.**
 
 ## Blockers
 
-None technical. The only gate is your review of the two branches.
+None. Everything merged and deployed; both worktrees are clean.
 
 ## Notes for Next AI Session
 
