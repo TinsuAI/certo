@@ -196,7 +196,10 @@ def _audit_allow_list(cur) -> list[str]:
 
 
 def _files_root() -> Path:
-    return Path(os.environ.get("DATA_HUB_FILES_ROOT", "data/files")).resolve()
+    return Path(
+        os.environ.get("DATA_HUB_FILES_ROOT")
+        or Path(__file__).resolve().parents[1] / "data" / "files"
+    ).resolve()
 
 
 def _schema_version(cur) -> str:

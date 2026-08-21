@@ -65,7 +65,10 @@ _BACKEND: FileBackend | None = None
 def get_backend() -> FileBackend:
     global _BACKEND
     if _BACKEND is None:
-        root = Path(os.environ.get("DATA_HUB_FILES_ROOT", "data/files")).resolve()
+        root = Path(
+            os.environ.get("DATA_HUB_FILES_ROOT")
+            or Path(__file__).resolve().parents[2] / "data" / "files"
+        ).resolve()
         _BACKEND = LocalFSBackend(root)
     return _BACKEND
 
