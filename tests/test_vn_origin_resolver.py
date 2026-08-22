@@ -250,36 +250,36 @@ def test_calculate_route_resolves_flagged_vn_lots_end_to_end(monkeypatch):
     from app import supplier_evidence_store
 
     monkeypatch.setattr(supplier_evidence_store, "flagged_suppliers", lambda client_id: dict(FLAGS))
-    from tests.test_co_demo import bcct_workbook, hidden_form_data
+    from tests.conftest import refresh_co_stock, seed_hub_bcct, seed_hub_bom
+    from tests.test_co_demo import hidden_form_data
+
+    # Seeded straight into Data Hub. This used to POST a workbook to CO's own
+    # /bcct/upload, which was the local file-store backend and is gone.
+    seed_hub_bom("growatt", "PV00.0048500", [("DEMO-NPL-001", 1.0)])
+    seed_hub_bcct("growatt", [
+        {
+            "transaction_key": "NK-AAA-VN-1", "declaration_no": "NK-AAA-VN",
+            "declaration_type": "E15", "direction": "import",
+            "customs_code": "DEMO-NPL-001", "goods_name": "Board VN",
+            "quantity": 3, "unit": "PCE", "unit_price": 10, "total_value": 30,
+            "origin": "VIETNAM", "consignee_name": MINGJIE,
+        },
+        {
+            "transaction_key": "XK-VN-1", "declaration_no": "XK-VN",
+            "declaration_type": "E42", "direction": "export",
+            "customs_code": "PV00.0048500", "goods_name": "Growatt inverter",
+            "quantity": 3, "unit": "PCS", "unit_price": 333, "total_value": 1000,
+            "origin": "VIETNAM", "invoice_ref": "INV-VN",
+        },
+    ])
+    # co_stock_rows and the claims ledger live in Postgres, so tồn needs CO's
+    # database. The upload route used to build this snapshot as a side effect.
+    import os as _os
+
+    monkeypatch.setenv("BARRY_DATABASE_URL", _os.environ["CO_SUITE_DATABASE_URL"])
+    refresh_co_stock("growatt")
 
     client = TestClient(main_module.app)
-    client.post(
-        "/clients/growatt/bcct/upload",
-        files={
-            "file": (
-                "bcct.xlsx",
-                bcct_workbook([
-                    {
-                        "direction": "import", "declaration_type": "E15",
-                        "declaration_no": "NK-AAA-VN", "line_no": "1",
-                        "item_code": "DEMO-NPL-001", "description": "Board VN",
-                        "hs_code": "8542.39", "quantity": "3", "unit": "PCE",
-                        "customs_value": "30", "currency": "VND",
-                        "origin_country": "VIETNAM", "partner_name": MINGJIE,
-                    },
-                    {
-                        "direction": "export", "declaration_type": "E42",
-                        "declaration_no": "XK-VN", "line_no": "1",
-                        "item_code": "PV00.0048500", "description": "Growatt inverter",
-                        "hs_code": "850440", "quantity": "3", "unit": "PCS",
-                        "customs_value": "1000", "currency": "VND",
-                        "invoice_ref": "INV-VN",
-                    },
-                ]),
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-        },
-    )
     created = client.post(
         "/clients/growatt/co-case/create",
         data={"title": "VN origin", "case_code": "CO-VN-E2E", "destination_market": "Ấn Độ", "invoice_no": "INV-VN"},
@@ -297,3 +297,17 @@ def test_calculate_route_resolves_flagged_vn_lots_end_to_end(monkeypatch):
     assert form_data["product_0_material_0_bang_ke_co_doc_no"] == f"Phụ lục X/{MINGJIE}"
     assert form_data["product_0_material_0_non_origin_cif_value"] == "0"
     assert form_data["product_0_material_0_bang_ke_origin_text"] == "Việt Nam"
+
+
+def _set_consignee(client_id: str, transaction_key: str, name: str) -> None:
+    """The Phụ lục X flag is matched on the supplier, which rides on the import
+    line's consignee_name."""
+    from hub.app.database import connect
+
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.bcct_rows set consignee_name=%s "
+            "where client_id=%s and transaction_key=%s",
+            (name, client_id, transaction_key),
+        )
+        conn.commit()

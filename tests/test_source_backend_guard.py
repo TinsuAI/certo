@@ -27,12 +27,6 @@ def test_get_portfolio_service_raises_when_dh_off_and_local_not_allowed(monkeypa
         portfolio.get_portfolio_service()
 
 
-def test_get_portfolio_service_allows_local_with_flag(monkeypatch):
-    monkeypatch.delenv("DATA_HUB_ENABLED", raising=False)
-    monkeypatch.setenv("CO_ALLOW_LOCAL_SOURCE", "1")
-    assert isinstance(portfolio.get_portfolio_service(), portfolio.PortfolioService)
-
-
 def test_source_dependent_route_returns_503_when_backend_unavailable(monkeypatch):
     monkeypatch.delenv("DATA_HUB_ENABLED", raising=False)
     monkeypatch.delenv("CO_ALLOW_LOCAL_SOURCE", raising=False)
@@ -46,7 +40,9 @@ def test_route_returns_503_when_dh_enabled_but_unreachable(monkeypatch):
     """DH on but the API is down (connection refused) → 503, never a raw 500 and
     never local backup data."""
     monkeypatch.setenv("DATA_HUB_ENABLED", "1")
-    monkeypatch.delenv("CO_ALLOW_LOCAL_SOURCE", raising=False)
+    # In-process there is no socket to refuse the connection; this pins the
+    # HTTP deployment shape, which survives until the phase-6 cutover.
+    monkeypatch.delenv("DATA_HUB_INPROCESS", raising=False)
     monkeypatch.setenv("DATA_HUB_BASE_URL", "http://127.0.0.1:9")
     monkeypatch.setenv("DATA_HUB_API_BASE_URL", "http://127.0.0.1:9")
     resp = TestClient(app, raise_server_exceptions=False).get("/clients")

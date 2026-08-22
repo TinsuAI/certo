@@ -13,6 +13,13 @@ from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from app.data_hub_settings import data_hub_link_settings
 
 
+from contextvars import ContextVar
+
+# The operator this request is being served for. The consolidation removed the
+# token that used to be threaded through here; the session user is the subject
+# now, and in-process reads authorize against it.
+CURRENT_CO_USER: ContextVar[object | None] = ContextVar("current_co_user", default=None)
+
 CO_SESSION_COOKIE = "co_data_hub_session"
 CO_REFRESH_COOKIE = "co_data_hub_refresh"
 # DH is the source of truth on refresh-token validity (sliding, 7d ceiling); the

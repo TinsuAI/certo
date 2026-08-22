@@ -20,7 +20,6 @@ from app.demo_data import get_clients as seed_get_clients
 from app.source_index_store import get_source_index_store, rebuild_source_index_if_configured
 from app.web.templating import asset_url
 from app import version as appver
-from app.source_postgres_store import get_source_write_store
 from app.source_store import (
     _safe_customs_fx_rows,
     co_stock_rows_from_bcct,
@@ -53,183 +52,6 @@ portfolio_templates = Jinja2Templates(directory=ROOT / "templates", context_proc
 portfolio_templates.env.globals["asset_url"] = asset_url
 
 
-class PortfolioService:
-    def clients(self) -> list[dict]:
-        store = get_app_state_store()
-        if store and store.has_clients():
-            return [self.client_summary(row["id"]) for row in store.clients()]
-        return [self.client_summary(row["id"]) for row in seed_get_clients()]
-
-    def client(self, client_id: str) -> dict:
-        store = get_app_state_store()
-        if store and store.has_clients():
-            try:
-                return store.client(client_id)
-            except KeyError as exc:
-                raise HTTPException(status_code=404, detail=f"Unknown client: {client_id}") from exc
-        try:
-            return seed_get_client(client_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=f"Unknown client: {client_id}") from exc
-
-    def client_summary(self, client_id: str) -> dict:
-        client = self.client(client_id)
-        source_summary, source_backend = self.source_summary(client)
-        summary = {
-            key: value
-            for key, value in client.items()
-            if key not in {"material_catalog", "product_catalog", "bcct_rows", "co_stock", "bom_rows"}
-        }
-        summary["counts"] = {
-            **client.get("counts", {}),
-            "materials": source_summary["material_catalog"]["published_row_count"],
-            "products": source_summary["product_catalog"]["published_row_count"],
-            "bcct": source_summary["bcct"]["published_row_count"],
-            "co_stock": source_summary["co_stock_row_count"],
-        }
-        summary["source_backend"] = source_backend
-        summary["source_versions"] = {
-            "material_catalog": source_summary["material_catalog"].get("latest_version") or {},
-            "product_catalog": source_summary["product_catalog"].get("latest_version") or {},
-            "bcct": source_summary["bcct"].get("latest_version") or {},
-        }
-        return summary
-
-    def get_client_config(self, client: dict) -> dict:
-        store = get_app_state_store()
-        if store:
-            return store.get_client_config(client)
-        return load_client_config(client)
-
-    def save_client_config(self, client: dict, config: dict) -> dict:
-        store = get_app_state_store()
-        if store:
-            return store.save_client_config(client, config)
-        return persist_client_config(client, config)
-
-    def refresh_client_indexes(self, client: dict) -> dict | None:
-        return rebuild_source_index_if_configured(client)
-
-    def source_summary(self, client: dict) -> tuple[dict, str]:
-        client_config = self.get_client_config(client)
-        store = get_source_index_store()
-        if store and store.has_client(client["id"]):
-            return store.source_summary(client["id"], client_config), "postgres"
-
-        material = load_module_state(client, "material_catalog")
-        product = load_module_state(client, "product_catalog")
-        bcct = load_module_state(client, "bcct")
-        return source_summary_from_states(material, product, bcct, client_config), "files"
-
-    def source_workspace(self, client: dict) -> tuple[dict, str]:
-        client_config = self.get_client_config(client)
-        store = get_source_index_store()
-        if store and store.has_client(client["id"]):
-            return store.source_workspace(client["id"], client_config), "postgres"
-        return get_source_workspace(client), "files"
-
-    def co_case_source_context(self, client: dict, case: dict, *, skip_heavy_context: bool = False) -> dict:
-        # Local store context is in-memory and cheap; skip_heavy_context (a Data Hub
-        # pagination optimization) is a no-op here.
-        client_config = self.get_client_config(client)
-        store = get_source_index_store()
-        shipment = case.get("shipment", {})
-        invoice_no = shipment.get("invoice_no", "")
-        export_declaration_nos = shipment.get("export_declaration_nos", [])
-        if store and store.has_client(client["id"]):
-            relevant_types = client_config.get("bcct", {}).get("relevant_export_declaration_types", [])
-            if source_index_accepts_declaration_refs(store.match_bcct_exports):
-                invoice_matches = store.match_bcct_exports(client["id"], invoice_no, relevant_types, export_declaration_nos)
-            else:
-                invoice_matches = store.match_bcct_exports(client["id"], invoice_no, relevant_types)
-            return {
-                "source_backend": "postgres",
-                "source_summary": store.source_summary(client["id"], client_config),
-                "invoice_matches": invoice_matches,
-                "material_rows": store.catalog_rows(client["id"], "material_catalog") if hasattr(store, "catalog_rows") else [],
-                "stock_rows": store.co_stock_rows(client["id"]) if hasattr(store, "co_stock_rows") else [],
-            }
-
-        material = load_module_state(client, "material_catalog")
-        product = load_module_state(client, "product_catalog")
-        bcct = load_module_state(client, "bcct")
-        return {
-            "source_backend": "files",
-            "source_summary": source_summary_from_states(material, product, bcct, client_config),
-            "invoice_matches": match_case_bcct_exports(
-                case,
-                {"bcct": {"published_rows": bcct["published_rows"]}},
-                client_config,
-            ),
-            "material_rows": material["published_rows"],
-            "stock_rows": co_stock_rows_from_bcct(
-                bcct["published_rows"],
-                client_config,
-                customs_fx_rows=_safe_customs_fx_rows(),
-            ),
-        }
-
-    def process_catalog_upload(self, client: dict, catalog_type: str, content: bytes, filename: str, upload_scope: str) -> dict:
-        store = get_source_write_store()
-        if store and store.has_client(client["id"]):
-            return store.process_catalog_upload(client, catalog_type, content, filename, upload_scope, self.get_client_config(client))
-        return process_catalog_upload(client, catalog_type, content, filename, upload_scope)
-
-    def process_bcct_upload(self, client: dict, content: bytes, filename: str) -> dict:
-        store = get_source_write_store()
-        if store and store.has_client(client["id"]):
-            return store.process_bcct_upload(client, content, filename, self.get_client_config(client))
-        return process_bcct_upload(client, content, filename)
-
-    def list_material_substitutes(self, client_id: str, material_code: str, **_query) -> tuple[list[dict], str]:
-        return [], "no_data_hub"
-
-    def list_bcct_by_codes(self, client_id: str, codes: list[str], **_query) -> list[dict]:
-        return []
-
-    def get_material(self, client_id: str, material_code: str) -> dict:
-        return {}
-
-    def submit_bom_proposal(self, client_id: str, product_code: str, **_kwargs) -> dict:
-        raise HTTPException(
-            status_code=503,
-            detail="BOM proposals require Data Hub. Enable Data Hub to propose modified BOM artifacts.",
-        )
-
-    def search_materials(self, client_id: str, query: str, limit: int = 20) -> list[dict]:
-        try:
-            client = self.client(client_id)
-        except HTTPException:
-            return []
-        catalog = client.get("material_catalog")
-        if isinstance(catalog, list):
-            rows = catalog
-        elif isinstance(catalog, dict):
-            rows = catalog.get("published_rows") or catalog.get("rows") or []
-        else:
-            rows = []
-        return rank_matches(
-            query,
-            rows,
-            lambda row: [
-                row.get("material_code"),
-                row.get("internal_code"),
-                row.get("name"),
-                row.get("hs_code"),
-            ],
-            limit=limit,
-        )
-
-    def material_catalog_template(self, client: dict) -> bytes:
-        return create_material_catalog_template_workbook(client)
-
-    def product_catalog_template(self, client: dict) -> bytes:
-        return create_product_catalog_template_workbook(client)
-
-    def bcct_template(self, client: dict) -> bytes:
-        return create_bcct_template_workbook(client)
-
-
 def source_index_accepts_declaration_refs(match_func) -> bool:
     try:
         return "export_declaration_nos" in inspect.signature(match_func).parameters
@@ -237,28 +59,31 @@ def source_index_accepts_declaration_refs(match_func) -> bool:
         return False
 
 
+
+
 class SourceBackendUnavailable(RuntimeError):
-    """Data Hub is the source of truth but is not configured/reachable, and the
-    local file-store fallback is not explicitly allowed. Surfaced as 503 so the
-    operator sees a clear error instead of a silently-empty page built from
-    stale local backup data."""
+    """Kept as the name callers catch; there is no local fallback to fall back to."""
 
 
-def get_portfolio_service() -> PortfolioService | DataHubPortfolioService:
+def get_portfolio_service() -> DataHubPortfolioService:
+    """The one source backend.
+
+    This used to choose between Data Hub and a local file-store implementation
+    of the same interface. Two implementations behind one interface is how they
+    drift, and the suite exercised the one production never ran — so the local
+    one is gone and there is nothing left to select.
+    """
     data_hub_client = data_hub_client_from_env(token_provider=current_data_hub_token)
-    if data_hub_client:
-        return DataHubPortfolioService(data_hub_client)
-    # No Data Hub client means DATA_HUB_ENABLED is off. Only fall back to the
-    # local file-store backend when explicitly allowed (tests / offline dev via
-    # CO_ALLOW_LOCAL_SOURCE=1). In a real deployment this raises so the request
-    # fails loudly rather than quietly serving local backup data.
-    if data_hub_link_settings().allow_local_source:
-        return PortfolioService()
-    raise SourceBackendUnavailable(
-        "Data Hub chưa được cấu hình (DATA_HUB_ENABLED). CO không dùng dữ liệu "
-        "local backup; hãy bật Data Hub hoặc đặt CO_ALLOW_LOCAL_SOURCE=1 cho môi "
-        "trường dev/test."
-    )
+    if data_hub_client is None:
+        # SourceBackendUnavailable, not a bare RuntimeError: main.py maps this
+        # to a 503 so the operator sees "source unavailable, try again" instead
+        # of a 500. The message no longer offers a local fallback because there
+        # is not one.
+        raise SourceBackendUnavailable(
+            "Data Hub chưa được cấu hình (DATA_HUB_ENABLED). "
+            "Không có nguồn dữ liệu nào khác — hãy bật Data Hub rồi thử lại."
+        )
+    return DataHubPortfolioService(data_hub_client)
 
 
 _PORTFOLIO_SERVICE_CACHE: tuple[tuple, PortfolioService | DataHubPortfolioService] | None = None
@@ -269,7 +94,6 @@ def current_portfolio_service() -> PortfolioService | DataHubPortfolioService:
     settings = data_hub_link_settings()
     cache_key = (
         settings.source_enabled,
-        settings.allow_local_source,
         settings.data_hub_api_base_url,
         settings.api_token,
         settings.request_timeout_seconds,

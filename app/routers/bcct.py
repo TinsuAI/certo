@@ -5,7 +5,6 @@ from fastapi import APIRouter
 from app.portfolio import portfolio_service
 from app.table_view import build_table_view
 from app.web.client_context import _data_hub_overview_context, client_context, resolve_client
-from app.web.deps import require_local_source_writes
 from app.web.templating import templates
 from fastapi import File, Request, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -96,30 +95,12 @@ async def bcct_exports(request: Request, client_id: str):
         name="bcct.html",
         context=bcct_table_context(request, client_id, "export"),
     )
-@router.get("/clients/{client_id}/bcct/template.xlsx")
-async def download_bcct_template(client_id: str):
-    require_local_source_writes()
-    content = portfolio_service.bcct_template(resolve_client(client_id))
-    return StreamingResponse(
-        iter([content]),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{client_id}-bcct-template.xlsx"'},
-    )
-@router.post("/clients/{client_id}/bcct/upload", response_class=HTMLResponse)
-async def upload_bcct_workbook(request: Request, client_id: str, file: UploadFile = File(...)):
-    require_local_source_writes()
-    client = resolve_client(client_id)
-    result = portfolio_service.process_bcct_upload(client, await file.read(), file.filename or "bcct.xlsx")
-    status_code = 400 if result["status"] == "failed" else 200
-    return templates.TemplateResponse(
-        request=request,
-        name="bcct.html",
-        status_code=status_code,
-        context=bcct_table_context(
-            request,
-            client_id,
-            bcct_result=result,
-            message=result["message"] if status_code == 200 else "",
-            error=result["message"] if status_code == 400 else "",
-        ),
-    )
+
+# Source-data writes belong to Data Hub.
+#
+# Uploading catalog / BOM / BCCT through CO was the local file-store backend,
+# which production has not used for a long time and which the suite has now
+# stopped using too. These routes answered 409 in Data Hub mode — the only mode
+# there is — so they were unreachable code guarding a mode that no longer
+# exists. The read views above stay: they render whatever the source of truth
+# holds.

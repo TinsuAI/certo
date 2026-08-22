@@ -187,11 +187,178 @@ def isolate_file_store():
         _discard_mirror(mirror)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _bootstrap_suite_database():
+    """Prepare the throwaway database the suite reads through Data Hub.
+
+    The suite now runs the backend production runs, so the client ids the tests
+    address have to exist as Data Hub clients rather than as directories in a
+    file store. Seeded once per session; the rows are inert scaffolding, and
+    each test still creates whatever cases and BOM data it needs.
+    """
+    os.environ.setdefault(
+        "DATA_HUB_DATABASE_URL",
+        os.environ.get("CO_SUITE_DATABASE_URL", "postgresql:///co_suite?host=/var/run/postgresql"),
+    )
+    from hub.app.database import apply_migrations, connect
+
+    apply_migrations()
+    # CO's own schema too: co_stock_rows and the claims ledger are Postgres-only,
+    # so any test that calculates or locks needs them. Tests opt in per-test with
+    # BARRY_DATABASE_URL — the default stays file-mode so the case-store fixtures
+    # that seed via save_state keep working.
+    os.environ.setdefault("CO_SUITE_DATABASE_URL", "postgresql:///co_suite?host=/var/run/postgresql")
+    _prev = os.environ.get("BARRY_DATABASE_URL")
+    os.environ["BARRY_DATABASE_URL"] = os.environ["CO_SUITE_DATABASE_URL"]
+    try:
+        from app.database import apply_migrations as apply_co_migrations
+
+        apply_co_migrations()
+    finally:
+        if _prev is None:
+            os.environ.pop("BARRY_DATABASE_URL", None)
+        else:
+            os.environ["BARRY_DATABASE_URL"] = _prev
+    with connect() as conn, conn.cursor() as cur:
+        for client_id, name in (
+            ("growatt", "Growatt"),
+            ("growatt-vn", "Growatt VN"),
+            ("johnson", "Johnson"),
+            ("johnson-vn", "Johnson VN"),
+            ("do-thanh", "Do Thanh"),
+            ("hub-only", "Hub Only Client"),
+        ):
+            cur.execute(
+                "insert into hub.clients (client_id, name) values (%s, %s) "
+                "on conflict (client_id) do nothing",
+                (client_id, name),
+            )
+        conn.commit()
+    yield
+
+
 @pytest.fixture(autouse=True)
 def isolate_data_hub_runtime_config(monkeypatch, tmp_path):
     monkeypatch.setenv("DATA_HUB_CONFIG_PATH", str(tmp_path / "data-hub-link.json"))
-    # Tests exercise the local file-store backend (DATA_HUB_ENABLED off). In a
-    # real deployment that now raises SourceBackendUnavailable; opt into the
-    # local fallback for the suite. DH-mode tests set DATA_HUB_ENABLED=1 anyway.
-    monkeypatch.setenv("CO_ALLOW_LOCAL_SOURCE", "1")
+    # The suite runs against the backend production runs: Data Hub in-process.
+    # It used to run the local file-store backend, so for years the tests
+    # exercised the one implementation prod never executes — the drift risk the
+    # consolidation exists to remove.
+    #
+    # DATA_HUB_DATABASE_URL is set FIRST and unconditionally. Data Hub's
+    # connect() otherwise defaults to the live `data_hub` database, and the
+    # guard that prevents that lives in hub/tests/conftest.py, which does not
+    # cover this suite.
+    monkeypatch.setenv(
+        "DATA_HUB_DATABASE_URL",
+        os.environ.get("CO_SUITE_DATABASE_URL", "postgresql:///co_suite?host=/var/run/postgresql"),
+    )
+    monkeypatch.setenv("DATA_HUB_ENABLED", "1")
+    monkeypatch.setenv("DATA_HUB_INPROCESS", "1")
+    monkeypatch.delenv("CO_ALLOW_LOCAL_SOURCE", raising=False)
     yield
+
+
+def seed_hub_bom(client_id: str, product_code: str, materials: list[tuple[str, float]]) -> str:
+    """Publish a BOM for `product_code` straight into Data Hub's tables.
+
+    Tests used to build their world by POSTing a workbook to CO's own
+    /bom/upload. That route was the local file-store backend and is gone, so
+    fixtures seed the source of truth directly. Returns the artifact id.
+    """
+    import secrets
+
+    from hub.app.database import connect
+
+    artifact_id = f"art_{secrets.token_hex(6)}"
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.clients (client_id, name) values (%s, %s) "
+            "on conflict (client_id) do nothing",
+            (client_id, client_id),
+        )
+        # Field values mirror a manual_flat agency upload — the shape the real
+        # seeder produces, so downstream code sees nothing unusual.
+        cur.execute(
+            """insert into hub.bom_artifacts
+               (artifact_id, client_id, product_code, artifact_no, status, actor, intent,
+                context, normalized_hash, row_count, diff_summary, source_bom_kind,
+                flatten_status, flatten_strategy, source_channel, lineage, flatten_method,
+                flatten_method_version, lineage_root_id, published_at)
+               values (%s,%s,%s,1,'published','agency_staff','asserted_technical',
+                       '{"seed": true, "profile": "manual_flat"}', %s, %s, '{}', 'manual_flat',
+                       'not_applicable','manual_flat_as_provided','agency_upload','{}',
+                       'none',0,%s, now())
+               on conflict (artifact_id) do nothing""",
+            (artifact_id, client_id, product_code, secrets.token_hex(32),
+             len(materials), artifact_id),
+        )
+        for row_index, (code, qty) in enumerate(materials, start=1):
+            cur.execute(
+                """insert into hub.bom_artifact_rows
+                   (artifact_id, row_index, material_code, qty_per_unit, uom, payload)
+                   values (%s, %s, %s, %s, %s, '{}')""",
+                (artifact_id, row_index, code, qty, "PCS"),
+            )
+        # The materials must exist too, or the catalog join drops these rows.
+        for code, _ in materials:
+            cur.execute(
+                "insert into hub.materials (client_id, material_code, name, category, status, uom) "
+                "values (%s,%s,%s,'nvl','active','PCS') on conflict do nothing",
+                (client_id, code, code),
+            )
+        conn.commit()
+    return artifact_id
+
+
+def seed_hub_bcct(client_id: str, rows: list[dict]) -> None:
+    """Insert BCCT lines directly. `year` is a generated column — never set it."""
+    from hub.app.database import connect
+
+    with connect() as conn, conn.cursor() as cur:
+        for r in rows:
+            cur.execute(
+                """insert into hub.bcct_rows
+                   (client_id, transaction_key, line_no, declaration_no, declaration_type,
+                    direction, registration_date, customs_code, goods_name, quantity,
+                    unit, unit_price, total_value, origin, invoice_ref, consignee_name)
+                   values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   on conflict do nothing""",
+                (
+                    client_id, r["transaction_key"], str(r.get("line_no", 1)),
+                    r["declaration_no"], r.get("declaration_type", "E11"),
+                    r["direction"], r.get("registration_date", "2026-01-15"),
+                    r["customs_code"], r.get("goods_name", r["customs_code"]),
+                    r.get("quantity", 100), r.get("unit", "PCS"),
+                    r.get("unit_price", 1), r.get("total_value", 100),
+                    r.get("origin", "CHINA"), r.get("invoice_ref", ""),
+                    r.get("consignee_name", ""),
+                ),
+            )
+        conn.commit()
+
+
+def refresh_co_stock(client_id: str) -> dict:
+    """Build CO's co_stock snapshot from whatever BCCT rows are seeded.
+
+    Uploading BCCT through CO used to do this as a side effect. Seeding Data
+    Hub directly skips it, so fixtures that need tồn — anything that calculates
+    or locks — call this after seeding.
+    """
+    from app import co_stock_materializer
+    from app.data_hub_client import normalize_bcct_row
+    from app.portfolio import portfolio_service
+    from app.source_store import _safe_customs_fx_rows, co_stock_rows_from_bcct
+    from app.web.client_context import resolve_client
+
+    client = resolve_client(client_id)
+    client_config = portfolio_service.get_client_config(client)
+    rows = portfolio_service.data_hub.list_bcct(client_id)
+    derived = co_stock_rows_from_bcct(
+        [normalize_bcct_row(r) for r in rows],
+        client_config,
+        customs_fx_rows=_safe_customs_fx_rows(),
+    )
+    return co_stock_materializer.refresh_co_stock_for_client(
+        client, lambda: derived, mode="full"
+    )

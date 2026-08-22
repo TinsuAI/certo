@@ -6,7 +6,6 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from app.portfolio import portfolio_service
 from app.table_view import build_table_view
 from app.web.client_context import _data_hub_overview_context, client_context, resolve_client
-from app.web.deps import require_local_source_writes
 from app.web.templating import templates
 
 
@@ -135,58 +134,11 @@ async def product_catalog(request: Request, client_id: str):
         context=catalog_table_context(request, client_id, "products"),
     )
 
-
-@router.get("/clients/{client_id}/catalog/material-template.xlsx")
-async def download_material_catalog_template(client_id: str):
-    require_local_source_writes()
-    content = portfolio_service.material_catalog_template(resolve_client(client_id))
-    return StreamingResponse(
-        iter([content]),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{client_id}-ds-nvl-template.xlsx"'},
-    )
-
-
-@router.get("/clients/{client_id}/catalog/product-template.xlsx")
-async def download_product_catalog_template(client_id: str):
-    require_local_source_writes()
-    content = portfolio_service.product_catalog_template(resolve_client(client_id))
-    return StreamingResponse(
-        iter([content]),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{client_id}-ds-sp-template.xlsx"'},
-    )
-
-
-@router.post("/clients/{client_id}/catalog/upload", response_class=HTMLResponse)
-async def upload_catalog_workbook(
-    request: Request,
-    client_id: str,
-    file: UploadFile = File(...),
-    catalog_type: str = Form("material"),
-    upload_scope: str = Form("full_catalog"),
-):
-    require_local_source_writes()
-    client = resolve_client(client_id)
-    result = portfolio_service.process_catalog_upload(
-        client,
-        catalog_type,
-        await file.read(),
-        file.filename or "catalog.xlsx",
-        upload_scope,
-    )
-    status_code = 400 if result["status"] == "failed" else 200
-    view_name = "products" if catalog_type == "product" else "materials"
-    return templates.TemplateResponse(
-        request=request,
-        name="catalog_table.html",
-        status_code=status_code,
-        context=catalog_table_context(
-            request,
-            client_id,
-            view_name,
-            catalog_result=result,
-            message=result["message"] if status_code == 200 else "",
-            error=result["message"] if status_code == 400 else "",
-        ),
-    )
+# Source-data writes belong to Data Hub.
+#
+# Uploading catalog / BOM / BCCT through CO was the local file-store backend,
+# which production has not used for a long time and which the suite has now
+# stopped using too. These routes answered 409 in Data Hub mode — the only mode
+# there is — so they were unreachable code guarding a mode that no longer
+# exists. The read views above stay: they render whatever the source of truth
+# holds.

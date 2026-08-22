@@ -246,3 +246,87 @@ The 8-minute, 2 GB figure is worth keeping for a different reason. It is the sam
 app's latency, measured through the test suite — parsing 93 MB JSON store files and recomputing
 derived state on every read. Cause #2 in the assessment, the one phase 4 targets. When phase 4
 lands, this number should move.
+
+## Phase 2 — the suite now runs the backend production runs
+
+The point of phase 2 was never the deletion. It was that CO had two
+implementations of one interface and the test suite exercised the one
+production does not run, so the two could drift apart without anything failing.
+
+`tests/conftest.py` now sets `DATA_HUB_ENABLED=1` and `DATA_HUB_INPROCESS=1`
+and points Data Hub at a throwaway `co_suite` database. That database is set
+**first and unconditionally**: the guard against writing into the live
+`data_hub` lives in `hub/tests/conftest.py` and does not cover this suite.
+
+| | before | after |
+|---|---|---|
+| CO suite backend | local file store | Data Hub, in-process |
+| failures on the flip | — | 185 |
+| failures now | — | 3 (see below) |
+| CO suite runtime | 8m13s | ~1m35s |
+
+The runtime drop is the corpus parse disappearing: the suite no longer
+hardlink-mirrors and re-parses 1.1 GB of JSON store files per run.
+
+### The deletion was a tenth of what the assessment claimed
+
+Phase 0 recorded "5,255 LOC that production never executes". **That was wrong**,
+and it is corrected here and in `.ai/DECISIONS.md`. The figure came from listing
+the modules behind `PortfolioService` and assuming the whole chain was the local
+backend. Most of it is shared domain logic that Data Hub mode calls directly:
+
+| Module | Live in DH mode via |
+|---|---|
+| `source_store` | `data_hub_client.py` imports `co_stock_rows_from_bcct` |
+| `source_index_store` | `co_stock_materializer.py:147` |
+| `bom_store` | `co_case_context.py` — the render funnel |
+| `bom_service` | `main.py`, `co_case_context.py` |
+| `bom_default_store` | the ★ pin default, CO migration 018 |
+
+Genuinely deleted: `PortfolioService` (177), `source_postgres_store` (228),
+`source_index_cli` (78), `CO_ALLOW_LOCAL_SOURCE`, and 8 write/template routes
+that answered 409 in the only mode that exists — **~510 lines, not 5,255**.
+
+CO's `/catalog`, `/bom` and `/bcct` **read views were kept**: they render
+whatever the source of truth holds and work fine in DH mode. An earlier attempt
+redirected them wholesale and was reverted — the same mistake as the phase-1
+redirect, classifying code by which class referenced it rather than by who calls
+it.
+
+### Two design corrections this forced
+
+- **In-process authorization was at the wrong layer.** `_authorize` demanded a
+  bearer, which is the app asking itself for proof of identity, and it locked
+  out every caller with no request at all — the origin preload thread, the
+  co_stock materializer, the CLI. The middleware authenticates; the client
+  scopes. Scoping is never skipped when there IS a subject, and both paths
+  (service token, signed-in operator) have a test.
+- **The bridge could not say "this call is internal".** Bridged reads carry no
+  bearer, but Data Hub's API cannot stop checking, because the same routes are
+  still served externally under the mount prefix. The marker is a ContextVar set
+  by the in-process transport, not a header, so a request arriving through
+  uvicorn cannot forge it.
+
+### Fixtures seed the source of truth
+
+`seed_hub_bom`, `seed_hub_bcct` and `refresh_co_stock` in `tests/conftest.py`.
+Tests used to build their world by POSTing a workbook at CO's own upload routes;
+those were the local backend. `refresh_co_stock` exists because that upload
+built CO's tồn snapshot as a side effect — seeding Data Hub directly skips it.
+Both schemas are bootstrapped into `co_suite`; a test that needs tồn opts into
+`BARRY_DATABASE_URL` explicitly, since `co_stock_rows` is Postgres-only.
+
+### Known failing, deliberately left
+
+- `test_vn_origin_resolver::test_calculate_route_resolves_flagged_vn_lots_end_to_end`
+- `test_case_state_invariants::test_load_bom_on_a_sheet_may_drop_that_sheets_overrides`
+- `test_declaration_type_preset_counts::test_config_page_shows_counts_and_exclusion_warning`
+
+All three need a fully seeded world (BOM + BCCT + invoice match + tồn + case +
+calculate). The seeding infrastructure now exists; what is missing is tracing
+why `calculate` yields no allocation row. Fixing them by guessing one field per
+attempt was the wrong method and was stopped.
+
+Plus the 4 pre-existing `hub/tests/test_bcct_paging` failures, unchanged since
+phase 0 — they need a populated BCCT table and fail against any empty database,
+in the unmerged repo too.

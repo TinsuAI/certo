@@ -81,7 +81,12 @@ def _require_token(authorization: str | None, *, scope: str = "hub:read") -> dic
     arg; their access is role-gated per `_require_can_view_client`.
     """
     if not authorization or not authorization.lower().startswith("bearer "):
-        if _auth_disabled():
+        from hub.app.auth.internal import is_internal_call
+
+        # A call from inside this process has already passed CO's own guard;
+        # requiring a bearer here would be asking the app to authenticate to
+        # itself. Externally served requests never carry the marker.
+        if is_internal_call() or _auth_disabled():
             return None
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bearer token required")
     token = authorization[7:].strip()

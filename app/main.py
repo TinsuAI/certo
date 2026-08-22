@@ -234,14 +234,13 @@ async def require_data_hub_auth(request: Request, call_next):
     if redirect:
         return redirect
     co_auth.load_optional_user(request)
-    token_context = None
-    user = co_auth.current_user(request)
-    if user and user.access_token:
-        token_context = set_current_data_hub_token(user.access_token)
+    # Publish the operator for the duration of the request so in-process Data
+    # Hub reads can scope to them. This used to publish an access token for the
+    # other service to verify; there is no other service.
+    user_context = co_auth.CURRENT_CO_USER.set(co_auth.current_user(request))
     try:
         return await call_next(request)
     finally:
-        if token_context:
-            reset_current_data_hub_token(token_context)
+        co_auth.CURRENT_CO_USER.reset(user_context)
 
 

@@ -395,6 +395,9 @@ def test_data_hub_client_omits_authorization_when_no_token_is_configured():
 
 
 def test_data_hub_client_from_env_uses_configured_api_base_url(monkeypatch):
+    # The in-process client has no base URL to configure — this asserts the
+    # HTTP factory branch, which still serves the not-yet-cut-over deployment.
+    monkeypatch.delenv("DATA_HUB_INPROCESS", raising=False)
     from app.data_hub_client import data_hub_client_from_env
 
     monkeypatch.setenv("DATA_HUB_ENABLED", "1")
@@ -1163,38 +1166,6 @@ def test_clients_page_shows_only_clients_the_user_may_view(monkeypatch):
     assert "Hidden Client" not in response.text
 
 
-def test_data_hub_mode_blocks_local_shared_source_uploads(monkeypatch):
-    monkeypatch.setenv("DATA_HUB_ENABLED", "1")
-
-    response = TestClient(app).post(
-        "/clients/growatt/bcct/upload",
-        files={"file": ("bcct.xlsx", b"not-an-xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-    )
-
-    assert response.status_code == 409
-    assert "Shared source data is read-only in CO" in response.text
-
-
-def test_data_hub_mode_blocks_local_bom_writes(monkeypatch):
-    monkeypatch.setenv("DATA_HUB_ENABLED", "1")
-    client = TestClient(app)
-
-    config_response = client.post(
-        "/clients/growatt/bom/config",
-        data={"bom_profile": "manual_flat"},
-    )
-    upload_response = client.post(
-        "/clients/growatt/bom/upload",
-        data={"upload_mode": "direct_bom"},
-        files={"file": ("bom.xlsx", b"not-an-xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-    )
-
-    assert config_response.status_code == 409
-    assert upload_response.status_code == 409
-    assert "Shared source data is read-only in CO" in config_response.text
-    assert "Shared source data is read-only in CO" in upload_response.text
-
-
 def test_data_hub_mode_hides_shared_source_upload_ui(monkeypatch):
     from app import main as main_module
 
@@ -1281,19 +1252,6 @@ def test_data_hub_mode_hides_shared_source_upload_ui(monkeypatch):
     assert "Tải template BCCT" not in bcct.text
     assert "Data Hub" in catalog.text
     assert "Data Hub" in bcct.text
-
-
-def test_data_hub_mode_blocks_shared_source_templates(monkeypatch):
-    monkeypatch.setenv("DATA_HUB_ENABLED", "1")
-    client = TestClient(app)
-
-    responses = [
-        client.get("/clients/growatt/catalog/material-template.xlsx"),
-        client.get("/clients/growatt/catalog/product-template.xlsx"),
-        client.get("/clients/growatt/bcct/template.xlsx"),
-    ]
-
-    assert [response.status_code for response in responses] == [409, 409, 409]
 
 
 def test_data_hub_mode_allows_customs_fx_refresh_until_hub_contract_exists(monkeypatch):

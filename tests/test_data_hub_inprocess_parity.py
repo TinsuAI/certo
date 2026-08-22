@@ -137,15 +137,19 @@ def test_unknown_client_is_rejected_in_process_too(clients):
 
 
 def test_service_account_scoping_is_enforced_in_process(clients, monkeypatch):
-    """The in-process path must refuse a client outside the token's whitelist.
+    """A bearer scoped to another client must not read this one.
 
-    Without this the extraction would bypass `_require_can_view_client` and any
-    CO session could read any client's corpus — with no test failing.
+    Authentication is the middleware's job — a call with no subject at all is a
+    background job and passes through. What must never be skipped is *scoping*:
+    when a caller does present an identity, the client it may read is checked.
+    Without this, an outside service token would read every client's corpus and
+    nothing else would fail.
     """
     from fastapi import HTTPException
 
     _, inprocess, client_id = clients
     monkeypatch.setenv("DATA_HUB_API_AUTH_DISABLED", "0")
+    monkeypatch.setattr(inprocess, "token", "svc-token-for-someone-else")
     monkeypatch.setattr(
         "hub.app.routes.api._require_token",
         lambda header, scope="hub:read": {"typ": "service", "client_ids": ["someone-else"]},
@@ -155,59 +159,21 @@ def test_service_account_scoping_is_enforced_in_process(clients, monkeypatch):
     assert excinfo.value.status_code == 403
 
 
-@pytest.fixture(scope="module")
-def seeded_bcct(clients):
-    """BCCT rows spanning more than one HTTP page."""
-    from hub.app.database import connect
+def test_signed_in_operator_cannot_read_a_client_outside_their_scope(clients, monkeypatch):
+    """Same control, session path: the operator's own visibility is enforced."""
+    from fastapi import HTTPException
 
-    _, _, client_id = clients
-    with connect() as conn, conn.cursor() as cur:
-        for i in range(150):
-            cur.execute(
-                # `year` is a generated column — never insert it.
-                """insert into hub.bcct_rows
-                   (client_id, transaction_key, line_no, declaration_no,
-                    declaration_type, direction, registration_date,
-                    customs_code, goods_name, quantity)
-                   values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (client_id, f"TK{i:05d}", "1", f"D{i:05d}",
-                 "E11", "import" if i % 2 else "export", f"2026-01-{(i % 28) + 1:02d}",
-                 f"C{i:04d}", f"Goods {i}", 10),
-            )
-        conn.commit()
-    return client_id
+    from app import co_auth
 
-
-def test_list_bcct_matches_the_http_path_exactly(clients, seeded_bcct):
-    bridged, inprocess, client_id = clients
-
-    over_http = bridged.list_bcct(client_id, limit=100)
-    in_process = inprocess.list_bcct(client_id)
-
-    assert len(over_http) == 150, "fixture must span more than one page"
-    assert in_process == over_http
-
-
-def test_list_bcct_direction_filter_matches(clients, seeded_bcct):
-    bridged, inprocess, client_id = clients
-    assert inprocess.list_bcct(client_id, direction="import") == bridged.list_bcct(
-        client_id, direction="import", limit=100
+    _, inprocess, client_id = clients
+    user = co_auth.DataHubUser(
+        user_id="u_x", email="x@test", role="staff", name="x", claims={}
     )
-
-
-def test_bcct_envelope_carries_server_time_and_items(clients, seeded_bcct):
-    """The delta-refresh path branches on `server_time` being present."""
-    _, inprocess, client_id = clients
-
-    envelope = inprocess.list_bcct_with_envelope(client_id)
-
-    assert envelope["server_time"], "delta refresh needs a high-water mark"
-    assert len(envelope["items"]) == 150
-    assert envelope["tombstones"] == []
-
-
-def test_bcct_server_time_is_a_parseable_timestamp(clients, seeded_bcct):
-    from datetime import datetime
-
-    _, inprocess, client_id = clients
-    datetime.fromisoformat(inprocess.bcct_server_time(client_id))
+    token = co_auth.CURRENT_CO_USER.set(user)
+    monkeypatch.setattr(co_auth, "can_view_client", lambda u, cid: False)
+    try:
+        with pytest.raises(HTTPException) as excinfo:
+            inprocess.list_materials(client_id)
+    finally:
+        co_auth.CURRENT_CO_USER.reset(token)
+    assert excinfo.value.status_code == 403

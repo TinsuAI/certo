@@ -39,6 +39,28 @@ import httpx
 from app.data_hub_client import DataHubClient
 
 
+def _mark_internal(app):
+    """Stamp requests that originate inside this process.
+
+    The bridged calls carry no bearer — there is nobody for CO to prove itself
+    to any more — but the API cannot simply stop checking, because those same
+    routes are still served to the outside under the mount prefix. The marker
+    lives in the ASGI scope rather than a header, so an external request cannot
+    forge it: requests arriving through uvicorn never have it set.
+    """
+
+    from hub.app.auth.internal import INTERNAL_CALL
+
+    async def _app(scope, receive, send):
+        marker = INTERNAL_CALL.set(True)
+        try:
+            await app(scope, receive, send)
+        finally:
+            INTERNAL_CALL.reset(marker)
+
+    return _app
+
+
 class SyncASGITransport(httpx.BaseTransport):
     """Sync httpx transport that drives an ASGI app in the same process.
 
@@ -56,7 +78,7 @@ class SyncASGITransport(httpx.BaseTransport):
     def __init__(self, app):
         self._portal_cm = anyio.from_thread.start_blocking_portal("asyncio")
         self._portal = self._portal_cm.__enter__()
-        self._inner = httpx.ASGITransport(app=app)
+        self._inner = httpx.ASGITransport(app=_mark_internal(app))
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         body = request.read()
@@ -108,19 +130,46 @@ class InProcessDataHubClient(DataHubClient):
         )
 
     def _authorize(self, client_id: str | None = None, *, scope: str = "hub:read"):
-        """Run Data Hub's own bearer verification and client scoping.
+        """Authorize an in-process read.
 
-        Same functions the route handlers call, so in-process access rights are
-        identical to HTTP access rights — including the service-account
-        `client_ids` whitelist and the per-user `can_view_client` check.
+        There is no token to present between the halves any more — they are one
+        process sharing one session — so demanding a bearer here would be
+        demanding proof of identity from ourselves. The rule mirrors CO's own
+        guard instead:
+
+          - a bearer, when one is supplied, is still verified and still carries
+            the service-account `client_ids` whitelist (an outside caller);
+          - otherwise the signed-in operator's scope applies;
+          - and when CO does not require auth at all (local dev, the test
+            suite), the read is allowed.
+
+        The client-scoping check is never skipped when there IS a subject — that
+        is the control that stops one operator reading another client's corpus.
         """
         from hub.app.routes.api import _require_can_view_client, _require_token
 
         header = self._auth_headers().get("Authorization")
-        claims = _require_token(header, scope=scope)
-        if client_id:
-            _require_can_view_client(claims, client_id)
-        return claims
+        if header:
+            claims = _require_token(header, scope=scope)
+            if client_id:
+                _require_can_view_client(claims, client_id)
+            return claims
+
+        from app import co_auth
+
+        user = _current_co_user()
+        if user is None:
+            # No subject: either CO's middleware already decided this request may
+            # proceed, or there is no request at all — the origin preload thread,
+            # the co_stock materializer and the CLI all read through here. This
+            # layer enforces scoping, not authentication; the middleware is the
+            # gate, and duplicating it here would lock out background work.
+            return None
+        if client_id and not co_auth.can_view_client(user, client_id):
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=403, detail="forbidden")
+        return None
 
     def list_materials(self, client_id: str, **query) -> list[dict]:
         """One query instead of a 14-page OFFSET walk. 5.75s -> 0.65s."""
@@ -208,6 +257,26 @@ class InProcessDataHubClient(DataHubClient):
         super().close()
         if isinstance(transport, SyncASGITransport):
             transport.close()
+
+
+def _current_co_user():
+    """The operator this call is being made for, if a request is in flight.
+
+    CO's middleware parks the resolved user on request.state; the ContextVar
+    that used to carry a Data Hub token now carries nothing, so the session is
+    the only subject there is.
+    """
+    from app import co_auth
+
+    return co_auth.CURRENT_CO_USER.get()
+
+
+def _unauthorized(base_url: str) -> httpx.HTTPStatusError:
+    return httpx.HTTPStatusError(
+        "authentication required",
+        request=httpx.Request("GET", base_url),
+        response=httpx.Response(401),
+    )
 
 
 def _iso(value) -> str:

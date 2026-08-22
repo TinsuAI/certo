@@ -5,7 +5,6 @@ from fastapi import APIRouter
 from app.bom_service import bom_service
 from app.table_view import build_table_view
 from app.web.client_context import _data_hub_overview_context, client_context, resolve_client, source_stats
-from app.web.deps import require_local_source_writes
 from app.web.templating import templates
 from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -150,57 +149,12 @@ async def bom(request: Request, client_id: str):
         name="bom.html",
         context=bom_context(request, client_id),
     )
-@router.post("/clients/{client_id}/bom/config", response_class=HTMLResponse)
-async def save_bom_config(request: Request, client_id: str):
-    require_local_source_writes()
-    client = resolve_client(client_id)
-    form = await request.form()
-    bom_service.update_config(client, {key: str(value) for key, value in form.items()})
-    return templates.TemplateResponse(
-        request=request,
-        name="bom.html",
-        context=bom_context(request, client_id, message="Đã lưu cấu hình BOM cho công ty này."),
-    )
-@router.post("/clients/{client_id}/bom/upload", response_class=HTMLResponse)
-async def upload_bom_workbook(
-    request: Request,
-    client_id: str,
-    file: UploadFile = File(...),
-    upload_mode: str = Form("direct_bom"),
-    upload_scope: str = Form(""),
-    accept_review_required: str = Form(""),
-):
-    require_local_source_writes()
-    client = resolve_client(client_id)
-    result = bom_service.process_upload(
-        client,
-        await file.read(),
-        file.filename or "bom.xlsx",
-        upload_mode,
-        upload_scope or None,
-        accept_review_required == "on",
-    )
-    status_code = 400 if result["status"] == "failed" else 200
-    return templates.TemplateResponse(
-        request=request,
-        name="bom.html",
-        status_code=status_code,
-        context=bom_context(
-            request,
-            client_id,
-            bom_result=result,
-            message=result["message"] if status_code == 200 else "",
-            error=result["message"] if status_code == 400 else "",
-        ),
-    )
-@router.get("/clients/{client_id}/bom/template.xlsx")
-async def download_bom_template(client_id: str):
-    try:
-        content = bom_service.template(resolve_client(client_id))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return StreamingResponse(
-        iter([content]),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{client_id}-bom-template.xlsx"'},
-    )
+
+# Source-data writes belong to Data Hub.
+#
+# Uploading catalog / BOM / BCCT through CO was the local file-store backend,
+# which production has not used for a long time and which the suite has now
+# stopped using too. These routes answered 409 in Data Hub mode — the only mode
+# there is — so they were unreachable code guarding a mode that no longer
+# exists. The read views above stay: they render whatever the source of truth
+# holds.
